@@ -116,24 +116,77 @@ class ChainCRF(nn.Module):
         return output
 
 
-class BiRecurrentConvCRF(BiRecurrentConv):
-    def __init__(self, word_dim, num_words, char_dim, num_chars, rnn_mode, hidden_size, out_features, num_layers,
-                 num_labels, embedd_word=None, embedd_char=None, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
-        super(BiRecurrentConvCRF, self).__init__(word_dim, num_words, char_dim, num_chars, rnn_mode, hidden_size, out_features, num_layers,
-                                                 num_labels, embedd_word=embedd_word, embedd_char=embedd_char,
-                                                 p_in=p_in, p_out=p_out, p_rnn=p_rnn, activation=activation)
+class BiRecurrentConvCRF(nn.Module):
+    def __init__(self, word_dim, num_words, rnn_mode, hidden_size, out_features, num_layers,
+                 num_labels, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
+        super(BiRecurrentConvCRF, self).__init__()
 
+        self.dropout_in = nn.Dropout2d(p=p_in)
+        # standard dropout
+        self.dropout_rnn_in = nn.Dropout(p=p_rnn[0])
+        self.dropout_out = nn.Dropout(p_out)
+
+        if rnn_mode == 'RNN':
+            RNN = nn.RNN
+        elif rnn_mode == 'LSTM' or rnn_mode == 'FastLSTM':
+            RNN = nn.LSTM
+        elif rnn_mode == 'GRU':
+            RNN = nn.GRU
+        else:
+            raise ValueError('Unknown RNN mode: %s' % rnn_mode)
+
+        self.rnn = RNN(word_dim, hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=p_rnn[1])
+
+        self.fc = nn.Linear(hidden_size * 2, out_features)
+        assert activation in ['elu', 'tanh']
+        if activation == 'elu':
+            self.activation = nn.ELU()
+        else:
+            self.activation = nn.Tanh()
+        
         self.crf = ChainCRF(out_features, num_labels, bigram=bigram)
         self.readout = None
         self.criterion = None
+    
+    def _get_rnn_output(self, input_word, mask=None):
+        output, _ = self.rnn(input_word)
 
-    def forward(self, input_word, input_char, mask=None):
+        output = self.dropout_out(output)
+        # [batch, length, out_features]
+        output = self.dropout_out(self.activation(self.fc(output)))
+        return output
+    
+    def forward(self, input_word, mask=None):
         # output from rnn [batch, length, hidden_size]
-        output = self._get_rnn_output(input_word, input_char, mask=mask)
+        output = self._get_rnn_output(input_word, mask=mask)
         # [batch, length, num_label, num_label]
         return self.crf(output, mask=mask)
 
 
+def testBiLSTM():
+    print("Entro")
+    words = torch.Tensor([3]).view(1,-1,1)
+    print(words)
+
+    dropout = "std"
+    crf = True
+    bigram = True
+    embedd_dim = 100
+    char_dim = 30
+    mode = "LSTM"
+    hidden_size = 256
+    out_features = 128
+    num_layers = 1
+    p_in = 0.33
+    p_out = 0.5
+    p_rnn = [0.33, 0.5]
+    activation = "elu"
+
+    model = BiRecurrentConvCRF(1, 5, mode, hidden_size, out_features, num_layers,num_labels=2, p_in=p_in, p_out=p_out, p_rnn=p_rnn, bigram=bigram, activation=activation)
+
+    print(model)
+    outputs = model(words)
+    print(outputs.shape)
 
 def test():
     torch.manual_seed(0)
@@ -209,4 +262,5 @@ def test2():
 
 
 if __name__ == "__main__":
-    test2()
+    #test2()
+    testBiLSTM()
