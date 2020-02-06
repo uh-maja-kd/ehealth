@@ -117,7 +117,7 @@ class ChainCRF(nn.Module):
 
 
 class BiRecurrentConvCRF(nn.Module):
-    def __init__(self, word_dim, num_words, rnn_mode, hidden_size, out_features, num_layers,
+    def __init__(self, word_dim, rnn_mode, hidden_size, out_features, num_layers,
                  num_labels, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
         super(BiRecurrentConvCRF, self).__init__()
 
@@ -182,7 +182,7 @@ def testBiLSTM():
     p_rnn = [0.33, 0.5]
     activation = "elu"
 
-    model = BiRecurrentConvCRF(1, 5, mode, hidden_size, out_features, num_layers,num_labels=2, p_in=p_in, p_out=p_out, p_rnn=p_rnn, bigram=bigram, activation=activation)
+    model = BiRecurrentConvCRF(1, mode, hidden_size, out_features, num_layers,num_labels=2, p_in=p_in, p_out=p_out, p_rnn=p_rnn, bigram=bigram, activation=activation)
 
     print(model)
     outputs = model(words)
