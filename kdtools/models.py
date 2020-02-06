@@ -1,6 +1,8 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.parameter import Parameter
 
 import kdtools as kd
 
@@ -62,7 +64,56 @@ class BasicSequenceTagger(nn.Module):
         # output
         out = self.token2tag(token_reprs)
         return out
+        
+class ChainCRF(nn.Module):
+    def __init__(self, input_size, num_labels, bigram=True):
+        super(ChainCRF, self).__init__()
+        self.input_size = input_size
+        self.num_labels = num_labels + 1
+        self.pad_label_id = num_labels
+        self.bigram = bigram
 
+
+        # state weight tensor
+        self.state_net = nn.Linear(input_size, self.num_labels)
+        if bigram:
+            # transition weight tensor
+            self.transition_net = nn.Linear(input_size, self.num_labels * self.num_labels)
+            self.register_parameter('transition_matrix', None)
+        else:
+            self.transition_net = None
+            self.transition_matrix = Parameter(torch.Tensor(self.num_labels, self.num_labels))
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.constant_(self.state_net.bias, 0.)
+        if self.bigram:
+            nn.init.xavier_uniform_(self.transition_net.weight)
+            nn.init.constant_(self.transition_net.bias, 0.)
+        else:
+            nn.init.normal_(self.transition_matrix)
+
+    def forward(self, input, mask=None):
+        batch, length, _ = input.size()
+
+        # compute out_s by tensor dot [batch, length, model_dim] * [model_dim, num_label]
+        # thus out_s should be [batch, length, num_label] --> [batch, length, num_label, 1]
+        out_s = self.state_net(input).unsqueeze(2)
+
+        if self.bigram:
+            # compute out_s by tensor dot: [batch, length, model_dim] * [model_dim, num_label * num_label]
+            # the output should be [batch, length, num_label,  num_label]
+            out_t = self.transition_net(input).view(batch, length, self.num_labels, self.num_labels)
+            output = out_t + out_s
+        else:
+            # [batch, length, num_label, num_label]
+            output = self.transition_matrix + out_s
+
+        if mask is not None:
+            output = output * mask.unsqueeze(2).unsqueeze(3)
+
+        return output
 
 def test():
     torch.manual_seed(0)
