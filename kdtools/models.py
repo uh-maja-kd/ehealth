@@ -115,6 +115,26 @@ class ChainCRF(nn.Module):
 
         return output
 
+
+class BiRecurrentConvCRF(BiRecurrentConv):
+    def __init__(self, word_dim, num_words, char_dim, num_chars, rnn_mode, hidden_size, out_features, num_layers,
+                 num_labels, embedd_word=None, embedd_char=None, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
+        super(BiRecurrentConvCRF, self).__init__(word_dim, num_words, char_dim, num_chars, rnn_mode, hidden_size, out_features, num_layers,
+                                                 num_labels, embedd_word=embedd_word, embedd_char=embedd_char,
+                                                 p_in=p_in, p_out=p_out, p_rnn=p_rnn, activation=activation)
+
+        self.crf = ChainCRF(out_features, num_labels, bigram=bigram)
+        self.readout = None
+        self.criterion = None
+
+    def forward(self, input_word, input_char, mask=None):
+        # output from rnn [batch, length, hidden_size]
+        output = self._get_rnn_output(input_word, input_char, mask=mask)
+        # [batch, length, num_label, num_label]
+        return self.crf(output, mask=mask)
+
+
+
 def test():
     torch.manual_seed(0)
 
