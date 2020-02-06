@@ -66,7 +66,69 @@ class BMEWOV:
 
     @staticmethod
     def _continuos_entities(sequence: list):
-        return []
+        partial = []
+        prev_state = "O"
+        entities_spans = []
+
+        def emit(entity: list):
+            nonlocal entities_spans
+            entities_spans.append(entity)
+
+        def flush():
+            nonlocal partial
+            for entity in partial:
+                emit(entity)
+            partial = []
+
+        def add(index):
+            partial.append([index])
+
+        def extend(index):
+            nonlocal partial
+            for entity in partial:
+                entity.append(index)
+
+        for i, tag in enumerate(sequence):
+            if tag == "O":
+                flush()
+            if prev_state in ["O","W","E"]:
+                if tag in ["B","M","V"]:
+                    add(i)
+                    if tag == "V":
+                        add(i)
+                if tag in ["W","E"]:
+                    emit([i])
+            if prev_state == "V":
+                if tag=="V":
+                    extend(i)
+                if tag=="B":
+                    flush()
+                    add(i)
+                if tag in ["M","E"]:
+                    emit(partial.pop())
+                    extend(i)
+                    if tag=="E":
+                        flush()
+                if tag=="W":
+                    flush()
+                    emit([i])
+            if prev_state in ["B","M"]:
+                if tag=="V":
+                    extend(i)
+                    add(i)
+                if tag=="B":
+                    flush()
+                    add(i)
+                if tag=="M":
+                    extend(i)
+                if tag=="E":
+                    extend(i)
+                    flush()
+                if tag=="W":
+                    flush()
+                    emit([i])
+            prev_state = tag
+        return entities_spans
 
     @staticmethod
     def decode(sequence: list):
@@ -94,6 +156,3 @@ class BMEWOV:
                     tag = "M"
             ret_tags.append(tag)
         return ret_tags
-
-
-print(BMEWOV.decode(["B","O","B","V","V","O","O","V", "V", "M", "M", "E", "E", "O"]))
