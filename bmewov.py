@@ -6,10 +6,8 @@ def add(n, t):
     return [n+i for i in t]
 
 class BMEWOV:
-    tags = ["B", "M", "E", "W", "O", "V"]
-
     @staticmethod
-    def _discontinuos_match_regex1(match):
+    def _discontinuous_match_regex1(match):
         entities_spans = []
 
         start, end = match.span()
@@ -26,7 +24,7 @@ class BMEWOV:
         return entities_spans
 
     @staticmethod
-    def _discontinuos_match_regex2(match):
+    def _discontinuous_match_regex2(match):
         entities_spans = []
 
         start, end = match.span()
@@ -43,7 +41,7 @@ class BMEWOV:
         return entities_spans
 
     @staticmethod
-    def _discontinuos_entities(sequence: list):
+    def _discontinuous_entities(sequence: list):
         sequence_str = "".join(sequence)
 
         cont_matches = []
@@ -53,19 +51,19 @@ class BMEWOV:
         reg2 = r"(BO)+BV+"
 
         for match in re.finditer(reg1, sequence_str):
-            entities_spans.extend(BMEWOV._discontinuos_match_regex1(match))
+            entities_spans.extend(BMEWOV._discontinuous_match_regex1(match))
             for i in range(*match.span()):
                 sequence[i] = "O"
 
         for match in re.finditer(reg2, sequence_str):
-            entities_spans.extend(BMEWOV._discontinuos_match_regex2(match))
+            entities_spans.extend(BMEWOV._discontinuous_match_regex2(match))
             for i in range(*match.span()):
                 sequence[i] = "O"
 
         return entities_spans
 
     @staticmethod
-    def _continuos_entities(sequence: list):
+    def _continuous_entities(sequence: list):
         partial = []
         prev_state = "O"
         entities_spans = []
@@ -132,7 +130,7 @@ class BMEWOV:
 
     @staticmethod
     def decode(sequence: list):
-        return BMEWOV._discontinuos_entities(sequence) + BMEWOV._continuos_entities(sequence)
+        return BMEWOV._discontinuous_entities(sequence) + BMEWOV._continuous_entities(sequence)
 
     @staticmethod
     def encode(sentence_spans: list, entities_spans: list):
