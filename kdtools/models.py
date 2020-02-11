@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-import kdtools as kdtools
+import kdtools
 
 class ChainCRF(nn.Module):
     def __init__(self, input_size, num_labels, bigram=True):
