@@ -1,6 +1,7 @@
 from scripts.utils import Collection, Sentence
 from torch.utils.data import Dataset, DataLoader
 from numpy import argmax
+from tqdm import tqdm
 
 class Node:
     def __init__(self):
@@ -9,8 +10,6 @@ class Node:
         self.dep = "NONE"
 
 class RelationsDependencyParseActionsDataset(Dataset):
-
-
 
     def __init__(self, collection: Collection):
         self.actions = ["IGNORE", "LEFT", "RIGHT", "SHIFT", "REDUCE"]
@@ -21,11 +20,11 @@ class RelationsDependencyParseActionsDataset(Dataset):
             "LEFT": {"can": self._can_do_leftarc, "do":self._leftarc},
             "RIGHT": {"can": self._can_do_rightarc, "do":self._rightarc}
         }
-
-        # self.data = self.get_data(collection)
-
         #log util info
         self.count = [0,0]
+
+        self.data = self._get_data(collection)
+
 
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
@@ -89,25 +88,27 @@ class RelationsDependencyParseActionsDataset(Dataset):
         d[j] = rel
         o.append(j)
 
-    def get_spans(self, sentence):
+    def _get_spans(self, sentence):
         spans = []
         begun = False
         start = None
+        punct = ".,;:()-\"\""
         for i, c in enumerate(sentence):
-            if not begun and c not in " .,":
+            if not begun and c not in " " + punct:
                 begun = True
                 start = i
-            if begun and c in " .,":
+            if begun and c in " " + punct:
                 begun = False
                 spans.append((start, i))
-                if c in ".,":
+                if c in punct:
                     spans.append((i, i))
 
         return spans
 
     def _build_tree(self, sentence: Sentence):
-        spans = self.get_spans(sentence.text)
+        spans = self._get_spans(sentence.text)
         id2pos = {kp.id: spans.index(kp.spans[0]) + 1 for kp in sentence.keyphrases}
+        sent_len = len(spans)
 
         headed_indexes = []
         rels = []
@@ -137,7 +138,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
 
         return nodes
 
-    def get_actions(self, sentence: Sentence):
+    def _get_actions(self, sentence: Sentence):
         tree = self._build_tree(sentence)
         sent_size = len(tree)-1
         state = ([], [i for i in range(sent_size, 0, -1)], [0] * (sent_size + 1), [0] * (sent_size + 1))
@@ -160,3 +161,34 @@ class RelationsDependencyParseActionsDataset(Dataset):
             else:
                 return False, actions
         return True, actions
+
+
+    def _get_data(self, collection: Collection):
+        data = []
+        for sentence in tqdm(collection.sentences):
+            try:
+                ok, sent_data = self._get_sentence_data(sentence)
+                if ok:
+                    data.append(sent_data)
+            except:
+                print(sentence)
+        return data
+
+    def _get_sentence_data(self, sentence: Sentence):
+        samples = []
+        ok, actions = self._get_actions(sentence)
+        if ok:
+            sent_size = len(self._get_spans(sentence.text))
+            if actions:
+                state = ([],[i for i in range(sent_size,0,-1)],[0]*(sent_size+1), ["NONE"]*(sent_size+1))
+                for name, dep in actions:
+                    samples.append((self._copy_state(state), (name, dep)))
+                    action_do = self.actions_funcs[name]["do"]
+                    action_do(state, dep)
+
+            return True, samples
+        return False, []
+
+    def _copy_state(self, state):
+        o,t,h,d = state
+        return (o.copy(), t.copy(), h.copy(), d.copy())
