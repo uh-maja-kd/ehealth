@@ -1,7 +1,11 @@
-from scripts.utils import Collection, Sentence
-from torch.utils.data import Dataset, DataLoader
 from numpy import argmax
+from scripts.utils import Collection, Sentence
+import torch
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
+from operator import add
+from functools import reduce
+
 
 class Node:
     def __init__(self):
@@ -13,6 +17,22 @@ class RelationsDependencyParseActionsDataset(Dataset):
 
     def __init__(self, collection: Collection):
         self.actions = ["IGNORE", "LEFT", "RIGHT", "SHIFT", "REDUCE"]
+        self.relations = [
+            "none",
+            "subject",
+            "target",
+            "in-place",
+            "in-time",
+            "in-context",
+            "arg",
+            "domain",
+            "has-property",
+            "part-of",
+            "is-a",
+            "same-as",
+            "causes",
+            "entails"
+        ]
         self.actions_funcs = {
             "IGNORE": {"can": self._can_do_ignore, "do":self._ignore},
             "SHIFT": {"can": self._can_do_shift, "do":self._shift},
@@ -20,11 +40,14 @@ class RelationsDependencyParseActionsDataset(Dataset):
             "LEFT": {"can": self._can_do_leftarc, "do":self._leftarc},
             "RIGHT": {"can": self._can_do_rightarc, "do":self._rightarc}
         }
+        self.action2index = { action: self.actions.index(action)+1 for action in self.actions}
+        self.relation2index = {relation: self.relations.index(relation) + 1 for relation in self.relations}
+
         #log util info
         self.count = [0,0]
 
-        self.data = self._get_data(collection)
-
+        self.dataxsentence = self._get_data(collection)
+        self.flatdata = reduce(add, self.dataxsentence)
 
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
@@ -182,7 +205,12 @@ class RelationsDependencyParseActionsDataset(Dataset):
             if actions:
                 state = ([],[i for i in range(sent_size,0,-1)],[0]*(sent_size+1), ["NONE"]*(sent_size+1))
                 for name, dep in actions:
-                    samples.append((self._copy_state(state), (name, dep)))
+                    samples.append(
+                        (
+                            (self._copy_state(state), sentence.text),
+                            (name, dep)
+                        )
+                    )
                     action_do = self.actions_funcs[name]["do"]
                     action_do(state, dep)
 
@@ -192,3 +220,23 @@ class RelationsDependencyParseActionsDataset(Dataset):
     def _copy_state(self, state):
         o,t,h,d = state
         return (o.copy(), t.copy(), h.copy(), d.copy())
+
+    def _encode_word_sequence(self, words):
+        return torch.tensor([0]+[0 for _ in words])
+
+    def __len__(self):
+        return sum([len(x) for x in self.flatdata])
+
+    def __getitem__(self, index: int):
+        inp, out = self.flatdata[index]
+        state, sentence = inp
+        action, rel = out
+        words = [sentence[start:end] for (start, end) in self._get_spans(sentence)]
+        o,t,h,d = state
+
+        return (
+                self._encode_word_sequence([words[i - 1] for i in o]),
+                self._encode_word_sequence([words[i - 1] for i in t]),
+                self.action2index[action],
+                self.relation2index[rel]
+        )
