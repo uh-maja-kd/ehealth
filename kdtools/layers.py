@@ -1,26 +1,26 @@
 import torch
 import torch.nn as nn
+from transformers import BertConfig, BertTokenizer, BertModel
 
-
-class BiLSTMEncoder(nn.Module):
+class BetoEncoder(nn.Module):
     def __init__(self, *args, **kargs):
         super().__init__()
-        self.layer = nn.LSTM(bidirectional=True, *args, **kargs)
 
-        self.hidden_size = 2*self.layer.hidden_size
+    self.tokenizer = BertTokenizer.from_pretrained("pytorch/", do_lower_case=False)
+    self.config = config, unused_kwargs = BertConfig.from_pretrained('pytorch/', output_attention=True,
+                                                foo=False, return_unused_kwargs=True)
 
-    def forward(self, input, hx=None):
-        output, hidden = self.layer(input, hx)
+    self.beto = BertModel(config).from_pretrained('pytorch/')
+    self.beto.eval()
 
-        hidden_size = self.layer.hidden_size
+    def forward(self, sentence):
+        tokens = tokenizer.tokenize(sentence)
+        indexed_tokens = tokenizer.convert_tokens_to_ids(tokens)
+        tokens_tensor = torch.tensor([indexed_tokens])
 
-        if self.layer.batch_first:
-            left2right = output[:, -1, :hidden_size]
-            right2left = output[:, 0, hidden_size:]
-        else:
-            left2right = output[-1, :, :hidden_size]
-            right2left = output[0, :, hidden_size:]
+        output = self.beto(tokens_tensor)
 
-        output = torch.cat((left2right, right2left), 1)
+        return output
+        
 
         return output, hidden
