@@ -1,10 +1,6 @@
-# eHealth-KD Corpus
+# Training and Development Data
 
-> ## Important
-> The eHealth-KD Corpus is distributed free of charge under a Creative Commons Non-Commercial Share-Alike 4.0 License.
->
-> To accept the distribution terms, please fill in the following form:
-> [https://forms.gle/3KHAvo7e5MfxtnME9](https://forms.gle/3KHAvo7e5MfxtnME9)
->
+This folder contains the training, development and (future) test data for the eHealth-KD challenge 2020.
+Check the [submission instructions](https://knowledge-learning.github.io/ehealthkd-2020/submission) for details.
 
-This folder and subfolders contain the eHealth-KD v2.0 Corpus. Please review each folder's Readme file for additional instructions.
+To use the eHealth-KD 2020 corpus you must agree to the license by [filling this form](https://forms.gle/pUJutSDq2FYLwNWQA).
