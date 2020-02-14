@@ -1,6 +1,6 @@
 from scripts.utils import Collection
 
-from bmewov import BMEWOV
+from kdtools.utils.bmewov import BMEWOV
 import es_core_news_md
 
 import torch
@@ -43,7 +43,7 @@ class SimpleWordIndexDataset(Dataset):
     def __getitem__(self, index):
         sentence_words = self.words[index]
         sentence_entities_spans = self.entities_spans[index]
-        sentence_labels = BMEWOV.encode(sentence_spans, sentence_entities_spans)
+        sentence_labels = BMEWOV.encode(sentence_words, sentence_entities_spans)
 
         return (
                 self._encode_words(sentence_words),
