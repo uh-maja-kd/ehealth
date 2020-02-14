@@ -135,7 +135,7 @@ class BMEWOV:
     @staticmethod
     def encode(sentence_spans: list, entities_spans: list):
         ret_tags = []
-        for span in token_spans:
+        for span in sentence_spans:
             tag = None
             ent_with_span = [entity for entity in entities_spans if span in entity]
             if len(ent_with_span) == 0:
