@@ -225,7 +225,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return torch.rand(10, len(words)+1)
 
     def __len__(self):
-        return sum([len(x) for x in self.flatdata])
+        return len(self.flatdata)
 
     def __getitem__(self, index: int):
         inp, out = self.flatdata[index]
