@@ -222,7 +222,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return (o.copy(), t.copy(), h.copy(), d.copy())
 
     def _encode_word_sequence(self, words):
-        return torch.tensor([0]+[0 for _ in words])
+        return torch.rand(10, len(words)+1)
 
     def __len__(self):
         return sum([len(x) for x in self.flatdata])
