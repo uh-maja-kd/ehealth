@@ -40,8 +40,8 @@ class RelationsDependencyParseActionsDataset(Dataset):
             "LEFT": {"can": self._can_do_leftarc, "do":self._leftarc},
             "RIGHT": {"can": self._can_do_rightarc, "do":self._rightarc}
         }
-        self.action2index = { action: self.actions.index(action)+1 for action in self.actions}
-        self.relation2index = {relation: self.relations.index(relation) + 1 for relation in self.relations}
+        self.action2index = { action: self.actions.index(action) for action in self.actions}
+        self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
 
         #log util info
         self.count = [0,0]
@@ -237,6 +237,6 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return (
                 self._encode_word_sequence([words[i - 1] for i in o]),
                 self._encode_word_sequence([words[i - 1] for i in t]),
-                self.action2index[action],
-                self.relation2index[rel]
+                torch.LongTensor([self.action2index[action]]),
+                torch.LongTensor([self.relation2index[rel]])
         )
