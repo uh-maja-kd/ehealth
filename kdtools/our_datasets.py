@@ -13,15 +13,17 @@ class SimpleWordIndexDataset(Dataset):
         self.words = [self._get_spans(sentence.text) for sentence in self.sentences]
         self.entities_spans = [[k.spans for k in s.keyphrases] for s in self.sentences]
 
+        self.labels = ["B", "M", "E", "W", "O", "V"]
+        self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
 
     def __len__(self):
         return len(self.sentences)
 
-    def _encode_words(self, sentence_words: list):
-        return torch.tensor([1 for word in sentence_words])
+    def _encode_word_sequence(self, words):
+        return torch.rand(10, len(words)+1)
 
-    def _encode_labels(self, sentence_labels: list):
-        return torch.tensor([2 for label in sentence_labels])
+    def _encode_labels(self, labels: list):
+        return torch.tensor([self.label2index[label] for label in labels])
 
     def _get_spans(self, sentence):
         spans = []
