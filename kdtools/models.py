@@ -24,8 +24,8 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
         self.relation_dense = nn.Linear(dense_input_size, relations_no)
 
     def forward(self, x):
-        sent_encoded, _ = self.bilstmencoder_sent(x[0])
-        stack_encoded, _ = self.bilstmencoder_stack(x[1])
+        stack_encoded, _ = self.bilstmencoder_stack(x[0])
+        sent_encoded, _ = self.bilstmencoder_sent(x[1])
 
         encoded = torch.cat([stack_encoded, sent_encoded], 1)
 
