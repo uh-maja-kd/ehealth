@@ -22,7 +22,7 @@ class SimpleWordIndexDataset(Dataset):
     def _encode_word_sequence(self, words):
         return torch.rand(10, len(words)+1)
 
-    def _encode_labels(self, labels: list):
+    def _encode_label_sequence(self, labels: list):
         return torch.tensor([self.label2index[label] for label in labels])
 
     def _get_spans(self, sentence):
@@ -48,6 +48,6 @@ class SimpleWordIndexDataset(Dataset):
         sentence_labels = BMEWOV.encode(sentence_words, sentence_entities_spans)
 
         return (
-                self._encode_words(sentence_words),
-                self._encode_labels(sentence_labels)
+                self._encode_word_sequence(sentence_words),
+                self._encode_label_sequence(sentence_labels)
         )
