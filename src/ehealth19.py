@@ -6,8 +6,8 @@ from tqdm import tqdm
 from scripts.submit import Algorithm
 from scripts.utils import Collection
 
-from kdtools.our_datasets2 import RelationsDependencyParseActionsDataset
-from kdtools.models2 import BiLSTMDoubleDenseOracleParser
+from kdtools.datasets import RelationsDependencyParseActionsDataset
+from kdtools.models import BiLSTMDoubleDenseOracleParser
 
 
 class UHMajaModel(Algorithm):
