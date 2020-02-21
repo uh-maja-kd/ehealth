@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
+from transformers import BertConfig, BertTokenizer, BertModel
 
 import kdtools
 from kdtools.layers import BiLSTMEncoder
@@ -131,6 +132,38 @@ class BiRecurrentConvCRF(nn.Module):
         output = self._get_rnn_output(input_word, mask=mask)
         # [batch, length, num_label, num_label]
         return self.crf(output, mask=mask)
+
+
+class BERT_BiLSTM_CRF(nn.Module):
+    def __init__(self, word_dim, rnn_mode, hidden_size, out_features, num_layers,
+                 num_labels, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
+        super(BERT_BiLSTM_CRF, self).__init__()
+        
+        model_path = "./pytorch"
+        
+        self.tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
+        config, unused_kwargs = BertConfig.from_pretrained(model_path, output_attention=True,
+                                                        foo=False, return_unused_kwargs=True)
+        self.bert = BertModel(config).from_pretrained(model_path)
+        self.bert.eval()
+        
+        
+        self.bert = BertModel.from_pretrained(model_path)
+        self.bilstm_crf = BiRecurrentConvCRF(word_dim, rnn_mode, hidden_size, out_features, num_layers,
+                 num_labels, p_in, p_out, p_rnn, bigram=False, activation='elu')
+        
+    
+    def forward(self, input_sentence):      
+        
+        tokens = self.tokenizer.tokenize(input_sentence)
+        indexed_tokens = tokenizer.convert_tokens_to_ids(tokens)
+        tokens_tensor = torch.tensor([indexed_tokens])
+
+        enc, _ = self.bert(tokens_tensor)
+        output = self.bilstm_crf(enc)
+        return output
+
+
 
 
 def testBiLSTM():
