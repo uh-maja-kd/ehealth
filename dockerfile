@@ -14,5 +14,6 @@ RUN wget https://users.dcc.uchile.cl/~jperez/beto/cased_2M/pytorch_weights.tar.g
 RUN wget https://users.dcc.uchile.cl/~jperez/beto/cased_2M/vocab.txt 
 RUN wget https://users.dcc.uchile.cl/~jperez/beto/cased_2M/config.json 
 RUN tar -xzvf pytorch_weights.tar.gz
-RUN mv config.json pytorch/.
-RUN mv vocab.txt pytorch/.
+RUN mv pytorch/ configs/beto.
+RUN mv config.json configs/beto.
+RUN mv vocab.txt configs/beto.
