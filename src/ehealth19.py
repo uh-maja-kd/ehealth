@@ -24,8 +24,8 @@ class UHMajaModel(Algorithm):
 
     def train_taskA(self, collection, config, n_epochs=100):
         dataset = EntityExtracionDataSet(collection)
-        model = BiRecurrentConvCRF(300, config.mode, config.hidden_size, config.out_features, config.num_layers, 2, 
-                                    config.p_in, config.p_out, config.p_rnn, config.bigram, config.activation)
+        model = BERT_BiLSTM_CRF(768, mode, hidden_size, out_features, num_layers, 2, 
+                                    p_in, p_out, p_rnn, bigram, activation)
 
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
         criterion_act = CrossEntropyLoss()
@@ -38,28 +38,23 @@ class UHMajaModel(Algorithm):
             running_loss_rel = 0.0
 
             for data in tqdm(dataset):
-                *X, y_act, y_rel = data
-                X = [x.view(1,-1,10) for x in X]
+                X, y = data
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
-                output_act, output_rel = model(X)
+                output = model(X)
 
-                loss_act = criterion_act(output_act, y_act)
-                loss_act.backward(retain_graph = True)
-
-                loss_rel = criterion_rel(output_rel, y_rel)
-                loss_rel.backward()
+                loss = criterion_act(output, y)
+                loss.backward(retain_graph = True)
 
                 optimizer.step()
 
-                running_loss_act += loss_act.item()
-                running_loss_rel += loss_rel.item()
+                running_loss += loss.item()
 
-                predicted_act = torch.argmax(output_act, -1)
-                predicted_rel = torch.argmax(output_rel, -1)
+                predicted = torch.argmax(output, -1)
+                
                 total += 1
-                correct += int(predicted_act == y_act and predicted_rel == y_rel)
+                correct += int(predicted == y)
 
             print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset) :0.3}")
             print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset) :0.3}")
