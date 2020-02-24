@@ -7,7 +7,7 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection
 
 from kdtools.datasets import RelationsDependencyParseActionsDataset
-from kdtools.models import BiLSTMDoubleDenseOracleParser
+from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
 
 
 class UHMajaModel(Algorithm):
@@ -18,12 +18,46 @@ class UHMajaModel(Algorithm):
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
         return super().run(collection, *args, taskA=taskA, taskB=taskB, **kargs)
 
-    def train(self, collection: Collection, n_epochs=100):
-        self.model_taskA = self.train_taskA(collection, n_epochs)
+    def train(self, collection: Collection, config, n_epochs=100):
+        self.model_taskA = self.train_taskA(collection, config, n_epochs)
         self.model_taskB = self.train_taskB(collection, n_epochs)
 
-    def train_taskA(self, collection, n_epochs=100):
-        pass
+    def train_taskA(self, collection, config, n_epochs=100):
+        dataset = EntityExtracionDataSet(collection)
+        model = BERT_BiLSTM_CRF(768, mode, hidden_size, out_features, num_layers, 2, 
+                                    p_in, p_out, p_rnn, bigram, activation)
+
+        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        criterion = CrossEntropyLoss()
+
+        for epoch in range(n_epochs):
+            correct = 0
+            total = 0
+            running_loss = 0.0
+
+            for data in tqdm(dataset):
+                X, y = data
+                optimizer.zero_grad()
+
+                # forward + backward + optimize
+                output = model(X)
+
+                loss = criterion(output, y)
+                loss.backward(retain_graph = True)
+
+                optimizer.step()
+
+                running_loss += loss.item()
+
+                predicted = torch.argmax(output, -1)
+                
+                total += 1
+                correct += int(predicted == y)
+
+            print(f"[{epoch + 1}] loss_act: {running_loss / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] accuracy: {correct / total}")
+
+        return model
 
     def train_taskB(self, collection: Collection, n_epochs=100):
         dataset = RelationsDependencyParseActionsDataset(collection)

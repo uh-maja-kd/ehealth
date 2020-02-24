@@ -120,7 +120,7 @@ class BiRecurrentConvCRF(nn.Module):
         self.criterion = None
     
     def _get_rnn_output(self, input_word, mask=None):
-        output, _ = self.rnn(input_word)
+        output, _ = self.rnn(input_word.view(1,-1,768))
 
         output = self.dropout_out(output)
         # [batch, length, out_features]
@@ -156,12 +156,18 @@ class BERT_BiLSTM_CRF(nn.Module):
     def forward(self, input_sentence):      
         
         tokens = self.tokenizer.tokenize(input_sentence)
-        indexed_tokens = tokenizer.convert_tokens_to_ids(tokens)
+        indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokens)
         tokens_tensor = torch.tensor([indexed_tokens])
 
-        enc, _ = self.bert(tokens_tensor)
-        output = self.bilstm_crf(enc)
-        return output
+        enc_sent = self.bert(tokens_tensor)[0]
+        
+        
+        output = []
+        for enc_word in enc_sent:
+            print(enc_word.shape, "again")
+            output.append(self.bilstm_crf(enc_word))
+            
+        return torch.cat(output, dim= len(output))
 
 
 
