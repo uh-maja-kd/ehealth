@@ -22,15 +22,23 @@ class UHMajaModel(Algorithm):
     def train(self, collection: Collection):
         builder = ConfigBuilder()
         
-        model_taskB_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json') 
-        train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json') 
+        model_taskB_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json')
+        model_taskA_config = builder.parse_config('./configs/config_BiLSTM-CRF.json')
+        train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
+        train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        self.model_taskA = self.train_taskA(collection)
+        self.model_taskA = self.train_taskA(collection, model_taskA_config, train_taskA_config)
         self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
-    def train_taskA(self, collection, config):
+    def train_taskA(self, collection, model_config, train_config):
+        #dataset = EntityExtracionDataSet(collection)
+        model = BERT_BiLSTM_CRF(768, model_config.mode, model_config.hidden_size, model_config.out_features, model_config.num_layers, 
+                                2, model_config.p_in, model_config.p_out, model_config.p_rnn, model_config.bigram, model_config.activation)
 
-        for epoch in range(n_epochs):
+        optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
+        criterion = CrossEntropyLoss()
+
+        for epoch in range(train_config.epochs):
             correct = 0
             total = 0
             running_loss = 0.0
@@ -43,7 +51,7 @@ class UHMajaModel(Algorithm):
                 output = model(X)
 
                 loss = criterion(output, y)
-                loss.backward(retain_graph = True)
+                loss.backward(retain_graph=train_config.loss.retain_graph)
 
                 optimizer.step()
 
