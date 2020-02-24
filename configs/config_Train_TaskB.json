@@ -1,0 +1,11 @@
+{
+    "epochs": 100,
+    "optimizer":{
+        "lr": 0.001,
+        "momentum": 0.9
+    },
+
+    "loss":{
+        "retain_graph": true
+    }
+}

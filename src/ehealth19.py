@@ -5,6 +5,7 @@ from tqdm import tqdm
 
 from scripts.submit import Algorithm
 from scripts.utils import Collection
+from python_json_config import ConfigBuilder
 
 from kdtools.datasets import RelationsDependencyParseActionsDataset
 from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
@@ -18,19 +19,26 @@ class UHMajaModel(Algorithm):
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
         return super().run(collection, *args, taskA=taskA, taskB=taskB, **kargs)
 
-    def train(self, collection: Collection, config, n_epochs=100):
-        self.model_taskA = self.train_taskA(collection, config, n_epochs)
-        self.model_taskB = self.train_taskB(collection, n_epochs)
+    def train(self, collection: Collection):
+        builder = ConfigBuilder()
+        
+        model_taskB_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json')
+        model_taskA_config = builder.parse_config('./configs/config_BiLSTM-CRF.json')
+        train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
+        train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-    def train_taskA(self, collection, config, n_epochs=100):
-        dataset = EntityExtracionDataSet(collection)
-        model = BERT_BiLSTM_CRF(768, mode, hidden_size, out_features, num_layers, 2, 
-                                    p_in, p_out, p_rnn, bigram, activation)
+        self.model_taskA = self.train_taskA(collection, model_taskA_config, train_taskA_config)
+        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+    def train_taskA(self, collection, model_config, train_config):
+        #dataset = EntityExtracionDataSet(collection)
+        model = BERT_BiLSTM_CRF(768, model_config.mode, model_config.hidden_size, model_config.out_features, model_config.num_layers, 
+                                2, model_config.p_in, model_config.p_out, model_config.p_rnn, model_config.bigram, model_config.activation)
+
+        optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
         criterion = CrossEntropyLoss()
 
-        for epoch in range(n_epochs):
+        for epoch in range(train_config.epochs):
             correct = 0
             total = 0
             running_loss = 0.0
@@ -43,7 +51,7 @@ class UHMajaModel(Algorithm):
                 output = model(X)
 
                 loss = criterion(output, y)
-                loss.backward(retain_graph = True)
+                loss.backward(retain_graph=train_config.loss.retain_graph)
 
                 optimizer.step()
 
@@ -59,15 +67,15 @@ class UHMajaModel(Algorithm):
 
         return model
 
-    def train_taskB(self, collection: Collection, n_epochs=100):
+    def train_taskB(self, collection: Collection, model_config, train_config):
         dataset = RelationsDependencyParseActionsDataset(collection)
-        model = BiLSTMDoubleDenseOracleParser(5, 14, 10, 50, batch_first=True)
+        model = BiLSTMDoubleDenseOracleParser(5, 14, 10, 50, batch_first=model_config.batch_first)
 
-        optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+        optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
         criterion_act = CrossEntropyLoss()
         criterion_rel = CrossEntropyLoss()
 
-        for epoch in range(n_epochs):
+        for epoch in range(train_config.epochs):
             correct = 0
             total = 0
             running_loss_act = 0.0
@@ -82,7 +90,7 @@ class UHMajaModel(Algorithm):
                 output_act, output_rel = model(X)
 
                 loss_act = criterion_act(output_act, y_act)
-                loss_act.backward(retain_graph = True)
+                loss_act.backward(retain_graph=train_config.loss.retain_graph)
 
                 loss_rel = criterion_rel(output_rel, y_rel)
                 loss_rel.backward()
