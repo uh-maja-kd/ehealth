@@ -7,7 +7,7 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection
 
 from kdtools.datasets import RelationsDependencyParseActionsDataset
-from kdtools.models import BiLSTMDoubleDenseOracleParser, 
+from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
 
 
 class UHMajaModel(Algorithm):
@@ -28,14 +28,12 @@ class UHMajaModel(Algorithm):
                                     p_in, p_out, p_rnn, bigram, activation)
 
         optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-        criterion_act = CrossEntropyLoss()
-        criterion_rel = CrossEntropyLoss()
+        criterion = CrossEntropyLoss()
 
         for epoch in range(n_epochs):
             correct = 0
             total = 0
-            running_loss_act = 0.0
-            running_loss_rel = 0.0
+            running_loss = 0.0
 
             for data in tqdm(dataset):
                 X, y = data
@@ -44,7 +42,7 @@ class UHMajaModel(Algorithm):
                 # forward + backward + optimize
                 output = model(X)
 
-                loss = criterion_act(output, y)
+                loss = criterion(output, y)
                 loss.backward(retain_graph = True)
 
                 optimizer.step()
@@ -56,8 +54,7 @@ class UHMajaModel(Algorithm):
                 total += 1
                 correct += int(predicted == y)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset) :0.3}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] loss_act: {running_loss / len(dataset) :0.3}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
