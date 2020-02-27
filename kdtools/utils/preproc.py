@@ -1,4 +1,4 @@
-def _get_spans(self, sentence: str):
+def get_spans(self, sentence: str):
     spans, begun, start = [], False, None
     punct = '.,;:()-""'
     for i, c in enumerate(sentence):
@@ -14,5 +14,5 @@ def _get_spans(self, sentence: str):
     return spans
 
 
-def _get_spacy_vector(self, word: str, lang: str = "spanish"):
+def get_spacy_vector(self, word: str, lang: str = "spanish"):
     pass
