@@ -251,11 +251,13 @@ class SimpleWordIndexDataset(Dataset):
         self.labels = ["B", "M", "E", "W", "O", "V"]
         self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
 
+        self.word_vector_size = 50
+
     def __len__(self):
         return len(self.sentences)
 
     def _encode_word_sequence(self, words):
-        return torch.rand(10, len(words)+1)
+        return torch.rand(50, len(words)+1)
 
     def _encode_label_sequence(self, labels: list):
         return torch.tensor([self.label2index[label] for label in labels])
@@ -286,4 +288,3 @@ class SimpleWordIndexDataset(Dataset):
                 self._encode_word_sequence(sentence_words),
                 self._encode_label_sequence(sentence_labels)
         )
-
