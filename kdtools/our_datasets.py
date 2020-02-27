@@ -7,11 +7,11 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 class SimpleWordIndexDataset(Dataset):
-    def __init__(self, collection: Collection):
+    def __init__(self, collection: Collection, entity_criteria):
         self.sentences = collection.sentences
 
         self.words = [self._get_spans(sentence.text) for sentence in self.sentences]
-        self.entities_spans = [[k.spans for k in s.keyphrases] for s in self.sentences]
+        self.entities_spans = [[k.spans for k in filter(entity_criteria, s.keyphrases)] for s in self.sentences]
 
         self.labels = ["B", "M", "E", "W", "O", "V"]
         self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
