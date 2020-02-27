@@ -1,3 +1,8 @@
+import spacy
+
+nlp = spacy.load("es_core_news_md")
+
+
 def get_spans(self, sentence: str):
     spans, begun, start = [], False, None
     punct = '.,;:()-""'
@@ -10,9 +15,8 @@ def get_spans(self, sentence: str):
             spans.append((start, i))
             if c in punct:
                 spans.append((i, i))
-
     return spans
 
 
-def get_spacy_vector(self, word: str, lang: str = "spanish"):
-    pass
+def get_spacy_vector(self, word: str):
+    return nlp.vocab.get_vector(word)
