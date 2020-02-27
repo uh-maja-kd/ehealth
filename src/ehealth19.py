@@ -7,7 +7,7 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection
 from python_json_config import ConfigBuilder
 
-from kdtools.datasets import RelationsDependencyParseActionsDataset
+from kdtools.datasets import RelationsDependencyParseActionsDataset, SimpleWordIndexDataset
 from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
 
 
@@ -31,7 +31,7 @@ class UHMajaModel(Algorithm):
         self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config):
-        #dataset = EntityExtracionDataSet(collection)
+        dataset = SimpleWordIndexDataset(collection, lambda x : x.label == 'Concept')
         model = BERT_BiLSTM_CRF(768, model_config.mode, model_config.hidden_size, model_config.out_features, model_config.num_layers, 
                                 2, model_config.p_in, model_config.p_out, model_config.p_rnn, model_config.bigram, model_config.activation)
 
@@ -48,7 +48,7 @@ class UHMajaModel(Algorithm):
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
-                output = model(X)
+                output = model(X.view(1, -1, dataset.word_vector_size))
 
                 loss = criterion(output, y)
                 loss.backward(retain_graph=train_config.loss.retain_graph)
