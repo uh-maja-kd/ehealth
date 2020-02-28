@@ -144,7 +144,7 @@ class BMEWOV:
                 tag = "V"
             else:
                 entity = ent_with_span[0]
-                if len(entity) == 0:
+                if len(entity) == 1:
                     tag = "W"
                 elif span == entity[0]:
                     tag = "B"
