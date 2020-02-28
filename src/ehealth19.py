@@ -7,8 +7,10 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection
 from python_json_config import ConfigBuilder
 
+
+
 from kdtools.datasets import RelationsDependencyParseActionsDataset, SimpleWordIndexDataset
-from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
+from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
 
 
 class UHMajaModel(Algorithm):
@@ -28,12 +30,11 @@ class UHMajaModel(Algorithm):
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
         self.model_taskA = self.train_taskA(collection, model_taskA_config, train_taskA_config)
-        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        #self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config):
         dataset = SimpleWordIndexDataset(collection, lambda x : x.label == 'Concept')
-        model = BERT_BiLSTM_CRF(768, model_config.mode, model_config.hidden_size, model_config.out_features, model_config.num_layers, 
-                                2, model_config.p_in, model_config.p_out, model_config.p_rnn, model_config.bigram, model_config.activation)
+        model = BiLSTM_CRF(embedding_dim=50, hidden_dim=768)
 
         optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
         criterion = CrossEntropyLoss()
@@ -45,13 +46,15 @@ class UHMajaModel(Algorithm):
 
             for data in tqdm(dataset):
                 X, y = data
+                X, y = X.view(1, -1 ,dataset.word_vector_size), y.view(1, len(y))
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
-                output = model(X.view(1, -1, dataset.word_vector_size))
+                output = model(X)
+                print(output.shape)
 
                 loss = criterion(output, y)
-                loss.backward(retain_graph=train_config.loss.retain_graph)
+                loss.backward()
 
                 optimizer.step()
 
@@ -117,5 +120,5 @@ if __name__ == "__main__":
 
     algorithm = UHMajaModel()
 
-    training = Collection().load(Path("data/training/scenario.txt"))
+    training = Collection().load(Path("D:/TESIS/ehealth/data/training/scenario.txt"))
     algorithm.train(training)
