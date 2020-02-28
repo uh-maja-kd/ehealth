@@ -6,6 +6,7 @@ from tqdm import tqdm
 from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
+from kdtools.utils.preproc import get_spans, get_spacy_vector
 
 class Node:
     def __init__(self):
@@ -111,25 +112,8 @@ class RelationsDependencyParseActionsDataset(Dataset):
         d[j] = rel
         o.append(j)
 
-    def _get_spans(self, sentence):
-        spans = []
-        begun = False
-        start = None
-        punct = ".,;:()-\"\""
-        for i, c in enumerate(sentence):
-            if not begun and c not in " " + punct:
-                begun = True
-                start = i
-            if begun and c in " " + punct:
-                begun = False
-                spans.append((start, i))
-                if c in punct:
-                    spans.append((i, i))
-
-        return spans
-
     def _build_tree(self, sentence: Sentence):
-        spans = self._get_spans(sentence.text)
+        spans = get_spans(sentence.text)
         id2pos = {kp.id: spans.index(kp.spans[0]) + 1 for kp in sentence.keyphrases}
         sent_len = len(spans)
 
@@ -201,7 +185,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         samples = []
         ok, actions = self._get_actions(sentence)
         if ok:
-            sent_size = len(self._get_spans(sentence.text))
+            sent_size = len(get_spans(sentence.text))
             if actions:
                 state = ([],[i for i in range(sent_size,0,-1)],[0]*(sent_size+1), ["NONE"]*(sent_size+1))
                 for name, dep in actions:
@@ -222,7 +206,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return (o.copy(), t.copy(), h.copy(), d.copy())
 
     def _encode_word_sequence(self, words):
-        return torch.rand(10, len(words)+1)
+        return torch.tensor([get_spacy_vector(word) for word in words+["."]])
 
     def __len__(self):
         return len(self.flatdata)
@@ -231,7 +215,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         inp, out = self.flatdata[index]
         state, sentence = inp
         action, rel = out
-        words = [sentence[start:end] for (start, end) in self._get_spans(sentence)]
+        words = [sentence[start:end] for (start, end) in get_spans(sentence)]
         o,t,h,d = state
 
         return (
@@ -244,45 +228,29 @@ class RelationsDependencyParseActionsDataset(Dataset):
 class SimpleWordIndexDataset(Dataset):
     def __init__(self, collection: Collection, entity_criteria):
         self.sentences = collection.sentences
-
-        self.words = [self._get_spans(sentence.text) for sentence in self.sentences]
+        self.words_spans = [get_spans(sentence.text) for sentence in self.sentences]
+        self.words = [[sentence.text[start:end] for (start,end) in spans] for (sentence, spans) in zip(self.sentences, self.words_spans)]
         self.entities_spans = [[k.spans for k in filter(entity_criteria, s.keyphrases)] for s in self.sentences]
 
         self.labels = ["B", "M", "E", "W", "O", "V"]
         self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
 
-        self.word_vector_size = 50
+        self.word_vector_size = len(get_spacy_vector("hola"))
 
     def __len__(self):
         return len(self.sentences)
 
     def _encode_word_sequence(self, words):
-        return torch.rand(50, len(words)+1)
+        return torch.tensor([get_spacy_vector(word) for word in words])
 
     def _encode_label_sequence(self, labels: list):
         return torch.tensor([self.label2index[label] for label in labels])
 
-    def _get_spans(self, sentence):
-        spans = []
-        begun = False
-        start = None
-        punct = ".,;:()-\"\""
-        for i, c in enumerate(sentence):
-            if not begun and c not in " " + punct:
-                begun = True
-                start = i
-            if begun and c in " " + punct:
-                begun = False
-                spans.append((start, i))
-                if c in punct:
-                    spans.append((i, i))
-
-        return spans
-
     def __getitem__(self, index):
+        sentence_words_spans = self.words_spans[index]
         sentence_words = self.words[index]
         sentence_entities_spans = self.entities_spans[index]
-        sentence_labels = BMEWOV.encode(sentence_words, sentence_entities_spans)
+        sentence_labels = BMEWOV.encode(sentence_words_spans, sentence_entities_spans)
 
         return (
                 self._encode_word_sequence(sentence_words),

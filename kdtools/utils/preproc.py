@@ -3,7 +3,7 @@ import spacy
 nlp = spacy.load("es_core_news_md")
 
 
-def get_spans(self, sentence: str):
+def get_spans(sentence: str):
     spans, begun, start = [], False, None
     punct = '.,;:()-""'
     for i, c in enumerate(sentence):
@@ -18,5 +18,5 @@ def get_spans(self, sentence: str):
     return spans
 
 
-def get_spacy_vector(self, word: str):
+def get_spacy_vector(word: str):
     return nlp.vocab.get_vector(word)
