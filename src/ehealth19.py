@@ -34,7 +34,7 @@ class UHMajaModel(Algorithm):
 
     def train_taskA(self, collection, model_config, train_config):
         dataset = SimpleWordIndexDataset(collection, lambda x : x.label == 'Concept')
-        model = BiLSTM_CRF(embedding_dim=50, hidden_dim=768)
+        model = BiLSTM_CRF()
 
         optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
         criterion = CrossEntropyLoss()
@@ -46,14 +46,13 @@ class UHMajaModel(Algorithm):
 
             for data in tqdm(dataset):
                 X, y = data
-                X, y = X.view(1, -1 ,dataset.word_vector_size), y.view(1, len(y))
+                X, y = X.view(1, -1 , dataset.word_vector_size), y.view(1, -1)
                 optimizer.zero_grad()
 
-                # forward + backward + optimize
+                # forward + backward + optimizes
                 output = model(X)
-                print(output.shape)
 
-                loss = criterion(output, y)
+                loss = criterion(output.view(1,model.tagset_size, -1), y)
                 loss.backward()
 
                 optimizer.step()
@@ -62,8 +61,8 @@ class UHMajaModel(Algorithm):
 
                 predicted = torch.argmax(output, -1)
                 
-                total += 1
-                correct += int(predicted == y)
+                total += len(predicted)
+                correct += sum(predicted.view(-1)==y.view(-1)).item()
 
             print(f"[{epoch + 1}] loss_act: {running_loss / len(dataset) :0.3}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
