@@ -30,17 +30,17 @@ class UHMajaModel(Algorithm):
         train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        self.model_taskAConcept,\
-        self.model_taskAAction,\
-        self.model_taskAPredicate,\
-        self.model_taskAReference = [
-            self.train_taskA(
-                collection,
-                model_taskA_config,
-                train_taskA_config.__getattr__(entity_type),
-                entity_type
-            ) for entity_type in ["Concept", "Action", "Reference", "Predicate"]]
-        # self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        # self.model_taskAConcept,\
+        # self.model_taskAAction,\
+        # self.model_taskAPredicate,\
+        # self.model_taskAReference = [
+        #     self.train_taskA(
+        #         collection,
+        #         model_taskA_config,
+        #         train_taskA_config.__getattr__(entity_type),
+        #         entity_type
+        #     ) for entity_type in ["Concept", "Action", "Reference", "Predicate"]]
+        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config, entity_type):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
@@ -82,9 +82,18 @@ class UHMajaModel(Algorithm):
 
     def train_taskB(self, collection: Collection, model_config, train_config):
         dataset = RelationsDependencyParseActionsDataset(collection)
-        model = BiLSTMDoubleDenseOracleParser(5, 14, 10, 50, batch_first=model_config.batch_first)
-
-        optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
+        model = BiLSTMDoubleDenseOracleParser(
+            len(dataset.actions),
+            len(dataset.relations),
+            dataset.word_vector_size,
+            model_config.hidden_size,
+            batch_first=True
+        )
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=train_config.optimizer.lr,
+            momentum=train_config.optimizer.momentum
+        )
         criterion_act = CrossEntropyLoss()
         criterion_rel = CrossEntropyLoss()
 
@@ -96,14 +105,14 @@ class UHMajaModel(Algorithm):
 
             for data in tqdm(dataset):
                 *X, y_act, y_rel = data
-                X = [x.view(1,-1,10) for x in X]
+                X = [x.view(1,-1,dataset.word_vector_size) for x in X]
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
                 output_act, output_rel = model(X)
 
                 loss_act = criterion_act(output_act, y_act)
-                loss_act.backward(retain_graph=train_config.loss.retain_graph)
+                loss_act.backward(retain_graph=True)
 
                 loss_rel = criterion_rel(output_rel, y_rel)
                 loss_rel.backward()
@@ -118,8 +127,8 @@ class UHMajaModel(Algorithm):
                 total += 1
                 correct += int(predicted_act == y_act and predicted_rel == y_rel)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset) :0.3}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset)}")
+            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset)}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model

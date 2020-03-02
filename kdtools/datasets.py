@@ -50,6 +50,8 @@ class RelationsDependencyParseActionsDataset(Dataset):
         self.dataxsentence = self._get_data(collection)
         self.flatdata = reduce(add, self.dataxsentence)
 
+        self.word_vector_size = len(get_spacy_vector("hola"))
+
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
         j = t[-1]
