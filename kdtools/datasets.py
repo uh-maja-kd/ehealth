@@ -244,7 +244,7 @@ class SimpleWordIndexDataset(Dataset):
         return torch.tensor([get_spacy_vector(word) for word in words])
 
     def _encode_label_sequence(self, labels: list):
-        return torch.tensor([self.label2index[label] for label in labels])
+        return torch.tensor([self.label2index[label] for label in labels], dtype = torch.long)
 
     def __getitem__(self, index):
         sentence_words_spans = self.words_spans[index]
