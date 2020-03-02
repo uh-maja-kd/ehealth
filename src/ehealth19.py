@@ -4,23 +4,47 @@ from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
 
 from scripts.submit import Algorithm
-from scripts.utils import Collection
+from scripts.utils import Collection, Keyphrase
 from python_json_config import ConfigBuilder
 
 from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset
 from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
+from kdtools.utils.bmewov import BMEWOV
 
 
 class UHMajaModel(Algorithm):
     def __init__(self):
-        self.model_taskAConcept = None
-        self.model_taskAAction = None
-        self.model_taskAPredicate = None
-        self.model_taskAReference = None
+        self.models_taskA = {
+            "Concept": BiLSTM_CRF(50, 6, 100),
+            "Action": BiLSTM_CRF(50, 6, 100),
+            "Predicate": BiLSTM_CRF(50, 6, 100),
+            "Reference": BiLSTM_CRF(50, 6, 100)
+        }
         self.model_taskB = None
 
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
-        return super().run(collection, *args, taskA=taskA, taskB=taskB, **kargs)
+        if taskA:
+            self.run_taskA(collection)
+
+        if taskB:
+            self.run_taskB(collection)
+
+    def run_taskA(self, collection: Collection):
+        print("Running taskA")
+        idx = 0
+        for entity_type, model in self.models_taskA.items():
+            print(entity_type)
+            dataset = SimpleWordIndexDataset(collection)
+            for spans, sentence, X in tqdm(dataset.evaluation):
+                output = [dataset.labels[idx] for idx in model(X)[1]]
+                kps = [[spans[idx] for idx in span_list] for span_list in BMEWOV.decode(output)]
+                for kp_spans in kps:
+                    idx += 1
+                    sentence.keyphrases.append(Keyphrase(sentence, entity_type, idx, kp_spans))
+
+
+    def run_taskB(self, collection: Collection):
+        pass
 
     def train(self, collection: Collection):
         builder = ConfigBuilder()
@@ -30,17 +54,16 @@ class UHMajaModel(Algorithm):
         train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        # self.model_taskAConcept,\
-        # self.model_taskAAction,\
-        # self.model_taskAPredicate,\
-        # self.model_taskAReference = [
-        #     self.train_taskA(
-        #         collection,
-        #         model_taskA_config,
-        #         train_taskA_config.__getattr__(entity_type),
-        #         entity_type
-        #     ) for entity_type in ["Concept", "Action", "Reference", "Predicate"]]
-        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        self.models_taskA = {
+            entity_type: self.train_taskA(
+                collection,
+                model_taskA_config,
+                train_taskA_config.__getattr__(entity_type),
+                entity_type
+            )
+            for entity_type in ["Concept", "Action", "Reference", "Predicate"]
+        }
+        # self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config, entity_type):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
@@ -132,7 +155,6 @@ class UHMajaModel(Algorithm):
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
-
 
 if __name__ == "__main__":
     from pathlib import Path

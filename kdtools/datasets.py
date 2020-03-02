@@ -228,7 +228,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         )
 
 class SimpleWordIndexDataset(Dataset):
-    def __init__(self, collection: Collection, entity_criteria):
+    def __init__(self, collection: Collection, entity_criteria = lambda x: x):
         self.sentences = collection.sentences
         self.words_spans = [get_spans(sentence.text) for sentence in self.sentences]
         self.words = [[sentence.text[start:end] for (start,end) in spans] for (sentence, spans) in zip(self.sentences, self.words_spans)]
@@ -238,6 +238,10 @@ class SimpleWordIndexDataset(Dataset):
         self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
 
         self.word_vector_size = len(get_spacy_vector("hola"))
+
+    @property
+    def evaluation(self):
+        return [(self.words_spans[idx], self.sentences[idx], self[idx][0]) for idx in range(len(self))]
 
     def __len__(self):
         return len(self.sentences)
