@@ -3,10 +3,160 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
-from transformers import BertConfig, BertTokenizer, BertModel
 
 import kdtools
 from kdtools.layers import BiLSTMEncoder
+
+def argmax(vec):
+    # return the argmax as a python int
+    _, idx = torch.max(vec, 1)
+    return idx.item()
+
+# Compute log sum exp in a numerically stable way for the forward algorithm
+def log_sum_exp(vec):
+    max_score = vec[0, argmax(vec)]
+    max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
+    return max_score + \
+        torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
+
+class BiLSTM_CRF(nn.Module):
+
+    def __init__(self, input_dim, tagset_size, hidden_dim):
+        super(BiLSTM_CRF, self).__init__()
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.tagset_size = tagset_size+2
+        self.START_TAG = tagset_size
+        self.STOP_TAG = tagset_size+1
+
+        self.lstm = nn.LSTM(input_dim, hidden_dim // 2,
+                            num_layers=1, bidirectional=True)
+
+        # Maps the output of the LSTM into tag space.
+        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+
+        # Matrix of transition parameters.  Entry i,j is the score of
+        # transitioning *to* i *from* j.
+        self.transitions = nn.Parameter(
+            torch.randn(self.tagset_size, self.tagset_size))
+
+        # These two statements enforce the constraint that we never transfer
+        # to the start tag and we never transfer from the stop tag
+        self.transitions.data[self.START_TAG, :] = -10000
+        self.transitions.data[:, self.STOP_TAG] = -10000
+
+        self.hidden = self.init_hidden()
+
+    def init_hidden(self):
+        return (torch.randn(2, 1, self.hidden_dim // 2),
+                torch.randn(2, 1, self.hidden_dim // 2))
+
+    def _forward_alg(self, feats):
+        # Do the forward algorithm to compute the partition function
+        init_alphas = torch.full((1, self.tagset_size), -10000.)
+        # START_TAG has all of the score.
+        init_alphas[0][self.START_TAG] = 0.
+
+        # Wrap in a variable so that we will get automatic backprop
+        forward_var = init_alphas
+
+        # Iterate through the sentence
+        for feat in feats:
+            alphas_t = []  # The forward tensors at this timestep
+            for next_tag in range(self.tagset_size):
+                # broadcast the emission score: it is the same regardless of
+                # the previous tag
+                emit_score = feat[next_tag].view(
+                    1, -1).expand(1, self.tagset_size)
+                # the ith entry of trans_score is the score of transitioning to
+                # next_tag from i
+                trans_score = self.transitions[next_tag].view(1, -1)
+                # The ith entry of next_tag_var is the value for the
+                # edge (i -> next_tag) before we do log-sum-exp
+                next_tag_var = forward_var + trans_score + emit_score
+                # The forward variable for this tag is log-sum-exp of all the
+                # scores.
+                alphas_t.append(log_sum_exp(next_tag_var).view(1))
+            forward_var = torch.cat(alphas_t).view(1, -1)
+        terminal_var = forward_var + self.transitions[self.STOP_TAG]
+        alpha = log_sum_exp(terminal_var)
+        return alpha
+
+    def _get_lstm_features(self, sentence):
+        self.hidden = self.init_hidden()
+        sentence = sentence.view(-1, 1, self.input_dim)
+        lstm_out, self.hidden = self.lstm(sentence, self.hidden)
+        lstm_out = lstm_out.view(len(sentence), self.hidden_dim)
+        lstm_feats = self.hidden2tag(lstm_out)
+        return lstm_feats
+
+    def _score_sentence(self, feats, tags):
+        # Gives the score of a provided tag sequence
+        score = torch.zeros(1)
+        tags = torch.cat([torch.tensor([self.START_TAG], dtype=torch.long), tags])
+        for i, feat in enumerate(feats):
+            score = score + \
+                self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
+        score = score + self.transitions[self.STOP_TAG, tags[-1]]
+        return score
+
+    def _viterbi_decode(self, feats):
+        backpointers = []
+
+        # Initialize the viterbi variables in log space
+        init_vvars = torch.full((1, self.tagset_size), -10000.)
+        init_vvars[0][self.START_TAG] = 0
+
+        # forward_var at step i holds the viterbi variables for step i-1
+        forward_var = init_vvars
+        for feat in feats:
+            bptrs_t = []  # holds the backpointers for this step
+            viterbivars_t = []  # holds the viterbi variables for this step
+
+            for next_tag in range(self.tagset_size):
+                # next_tag_var[i] holds the viterbi variable for tag i at the
+                # previous step, plus the score of transitioning
+                # from tag i to next_tag.
+                # We don't include the emission scores here because the max
+                # does not depend on them (we add them in below)
+                next_tag_var = forward_var + self.transitions[next_tag]
+                best_tag_id = argmax(next_tag_var)
+                bptrs_t.append(best_tag_id)
+                viterbivars_t.append(next_tag_var[0][best_tag_id].view(1))
+            # Now add in the emission scores, and assign forward_var to the set
+            # of viterbi variables we just computed
+            forward_var = (torch.cat(viterbivars_t) + feat).view(1, -1)
+            backpointers.append(bptrs_t)
+
+        # Transition to STOP_TAG
+        terminal_var = forward_var + self.transitions[self.STOP_TAG]
+        best_tag_id = argmax(terminal_var)
+        path_score = terminal_var[0][best_tag_id]
+
+        # Follow the back pointers to decode the best path.
+        best_path = [best_tag_id]
+        for bptrs_t in reversed(backpointers):
+            best_tag_id = bptrs_t[best_tag_id]
+            best_path.append(best_tag_id)
+        # Pop off the start tag (we dont want to return that to the caller)
+        start = best_path.pop()
+        assert start == self.START_TAG  # Sanity check
+        best_path.reverse()
+        return path_score, best_path
+
+    def neg_log_likelihood(self, sentence, tags):
+        feats = self._get_lstm_features(sentence)
+        forward_score = self._forward_alg(feats)
+        gold_score = self._score_sentence(feats, tags)
+        return forward_score - gold_score
+
+    def forward(self, sentence):  # dont confuse this with _forward_alg above.
+        # Get the emission scores from the BiLSTM
+        lstm_feats = self._get_lstm_features(sentence)
+
+        # Find the best path, given the features.
+        score, tag_seq = self._viterbi_decode(lstm_feats)
+        return score, tag_seq
 
 class BiLSTMDoubleDenseOracleParser(nn.Module):
     def __init__(self,
@@ -34,169 +184,3 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
         relation_out = F.softmax(self.relation_dense(encoded), 1)
 
         return [action_out, relation_out]
-
-
-class ChainCRF(nn.Module):
-    def __init__(self, input_size, num_labels, bigram=True):
-        super(ChainCRF, self).__init__()
-        self.input_size = input_size
-        self.num_labels = num_labels + 1
-        self.pad_label_id = num_labels
-        self.bigram = bigram
-
-
-        # state weight tensor
-        self.state_net = nn.Linear(input_size, self.num_labels)
-        if bigram:
-            # transition weight tensor
-            self.transition_net = nn.Linear(input_size, self.num_labels * self.num_labels)
-            self.register_parameter('transition_matrix', None)
-        else:
-            self.transition_net = None
-            self.transition_matrix = Parameter(torch.Tensor(self.num_labels, self.num_labels))
-
-        self.reset_parameters()
-
-    def reset_parameters(self):
-        nn.init.constant_(self.state_net.bias, 0.)
-        if self.bigram:
-            nn.init.xavier_uniform_(self.transition_net.weight)
-            nn.init.constant_(self.transition_net.bias, 0.)
-        else:
-            nn.init.normal_(self.transition_matrix)
-
-    def forward(self, input, mask=None):
-        batch, length, _ = input.size()
-
-        # compute out_s by tensor dot [batch, length, model_dim] * [model_dim, num_label]
-        # thus out_s should be [batch, length, num_label] --> [batch, length, num_label, 1]
-        out_s = self.state_net(input).unsqueeze(2)
-
-        if self.bigram:
-            # compute out_s by tensor dot: [batch, length, model_dim] * [model_dim, num_label * num_label]
-            # the output should be [batch, length, num_label,  num_label]
-            out_t = self.transition_net(input).view(batch, length, self.num_labels, self.num_labels)
-            output = out_t + out_s
-        else:
-            # [batch, length, num_label, num_label]
-            output = self.transition_matrix + out_s
-
-        if mask is not None:
-            output = output * mask.unsqueeze(2).unsqueeze(3)
-
-        return output
-
-
-class BiRecurrentConvCRF(nn.Module):
-    def __init__(self, word_dim, rnn_mode, hidden_size, out_features, num_layers,
-                 num_labels, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
-        super(BiRecurrentConvCRF, self).__init__()
-
-        self.dropout_in = nn.Dropout2d(p=p_in)
-        # standard dropout
-        self.dropout_rnn_in = nn.Dropout(p=p_rnn[0])
-        self.dropout_out = nn.Dropout(p_out)
-
-        if rnn_mode == 'RNN':
-            RNN = nn.RNN
-        elif rnn_mode == 'LSTM' or rnn_mode == 'FastLSTM':
-            RNN = nn.LSTM
-        elif rnn_mode == 'GRU':
-            RNN = nn.GRU
-        else:
-            raise ValueError('Unknown RNN mode: %s' % rnn_mode)
-
-        self.rnn = RNN(word_dim, hidden_size, num_layers=num_layers, batch_first=True, bidirectional=True, dropout=p_rnn[1])
-
-        self.fc = nn.Linear(hidden_size * 2, out_features)
-        assert activation in ['elu', 'tanh']
-        if activation == 'elu':
-            self.activation = nn.ELU()
-        else:
-            self.activation = nn.Tanh()
-        
-        self.crf = ChainCRF(out_features, num_labels, bigram=bigram)
-        self.readout = None
-        self.criterion = None
-    
-    def _get_rnn_output(self, input_word, mask=None):
-        output, _ = self.rnn(input_word.view(1,-1,768))
-
-        output = self.dropout_out(output)
-        # [batch, length, out_features]
-        output = self.dropout_out(self.activation(self.fc(output)))
-        return output
-    
-    def forward(self, input_word, mask=None):
-        # output from rnn [batch, length, hidden_size]
-        output = self._get_rnn_output(input_word, mask=mask)
-        # [batch, length, num_label, num_label]
-        return self.crf(output, mask=mask)
-
-
-class BERT_BiLSTM_CRF(nn.Module):
-    def __init__(self, word_dim, rnn_mode, hidden_size, out_features, num_layers,
-                 num_labels, p_in=0.33, p_out=0.5, p_rnn=(0.5, 0.5), bigram=False, activation='elu'):
-        super(BERT_BiLSTM_CRF, self).__init__()
-        
-        model_path = "./pytorch"
-        
-        self.tokenizer = BertTokenizer.from_pretrained(model_path, do_lower_case=False)
-        config, unused_kwargs = BertConfig.from_pretrained(model_path, output_attention=True,
-                                                        foo=False, return_unused_kwargs=True)
-        self.bert = BertModel(config).from_pretrained(model_path)
-        self.bert.eval()
-        
-        
-        self.bert = BertModel.from_pretrained(model_path)
-        self.bilstm_crf = BiRecurrentConvCRF(word_dim, rnn_mode, hidden_size, out_features, num_layers,
-                 num_labels, p_in, p_out, p_rnn, bigram=False, activation='elu')
-        
-    
-    def forward(self, input_sentence):      
-        
-        tokens = self.tokenizer.tokenize(input_sentence)
-        indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokens)
-        tokens_tensor = torch.tensor([indexed_tokens])
-
-        enc_sent = self.bert(tokens_tensor)[0]
-        
-        
-        output = []
-        for enc_word in enc_sent:
-            print(enc_word.shape, "again")
-            output.append(self.bilstm_crf(enc_word))
-            
-        return torch.cat(output, dim= len(output))
-
-
-
-
-def testBiLSTM():
-    print("Entro")
-    words = torch.Tensor([3]).view(1,-1,1)
-    print(words)
-
-    dropout = "std"
-    crf = True
-    bigram = True
-    embedd_dim = 100
-    char_dim = 30
-    mode = "LSTM"
-    hidden_size = 256
-    out_features = 128
-    num_layers = 1
-    p_in = 0.33
-    p_out = 0.5
-    p_rnn = [0.33, 0.5]
-    activation = "elu"
-
-    model = BiRecurrentConvCRF(1, mode, hidden_size, out_features, num_layers,num_labels=2, p_in=p_in, p_out=p_out, p_rnn=p_rnn, bigram=bigram, activation=activation)
-
-    print(model)
-    outputs = model(words)
-    print(outputs.shape)
-
-
-if __name__ == "__main__":
-    testBiLSTM()
