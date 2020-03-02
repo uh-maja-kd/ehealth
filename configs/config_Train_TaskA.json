@@ -1,11 +1,30 @@
 {
-    "epochs": 100,
-    "optimizer":{
-        "lr": 0.001,
-        "momentum": 0.9
+    "Concept": {
+        "epochs": 10,
+        "optimizer": {
+            "lr": 0.01,
+            "weight_decay": 1e-4
+        }
     },
-
-    "loss":{
-        "retain_graph": true
+    "Action": {
+        "epochs": 10,
+        "optimizer": {
+            "lr": 0.01,
+            "weight_decay": 1e-4
+        }
+    },
+    "Predicate": {
+        "epochs": 5,
+        "optimizer": {
+            "lr": 0.01,
+            "weight_decay": 1e-4
+        }
+    },
+    "Reference": {
+        "epochs": 5,
+        "optimizer": {
+            "lr": 0.01,
+            "weight_decay": 1e-4
+        }
     }
 }

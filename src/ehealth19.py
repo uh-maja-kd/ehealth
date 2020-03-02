@@ -7,13 +7,16 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection
 from python_json_config import ConfigBuilder
 
-from kdtools.datasets import RelationsDependencyParseActionsDataset
-from kdtools.models import BiLSTMDoubleDenseOracleParser, BERT_BiLSTM_CRF
+from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset
+from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
 
 
 class UHMajaModel(Algorithm):
     def __init__(self):
-        self.model_taskA = None
+        self.model_taskAConcept = None
+        self.model_taskAAction = None
+        self.model_taskAPredicate = None
+        self.model_taskAReference = None
         self.model_taskB = None
 
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
@@ -21,48 +24,58 @@ class UHMajaModel(Algorithm):
 
     def train(self, collection: Collection):
         builder = ConfigBuilder()
-        
+
         model_taskB_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json')
         model_taskA_config = builder.parse_config('./configs/config_BiLSTM-CRF.json')
         train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        self.model_taskA = self.train_taskA(collection, model_taskA_config, train_taskA_config)
-        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        self.model_taskAConcept,\
+        self.model_taskAAction,\
+        self.model_taskAPredicate,\
+        self.model_taskAReference = [
+            self.train_taskA(
+                collection,
+                model_taskA_config,
+                train_taskA_config.__getattr__(entity_type),
+                entity_type
+            ) for entity_type in ["Concept", "Action", "Reference", "Predicate"]]
+        # self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
-    def train_taskA(self, collection, model_config, train_config):
-        #dataset = EntityExtracionDataSet(collection)
-        model = BERT_BiLSTM_CRF(768, model_config.mode, model_config.hidden_size, model_config.out_features, model_config.num_layers, 
-                                2, model_config.p_in, model_config.p_out, model_config.p_rnn, model_config.bigram, model_config.activation)
-
-        optimizer = optim.SGD(model.parameters(), lr= train_config.optimizer.lr, momentum=train_config.optimizer.momentum)
-        criterion = CrossEntropyLoss()
+    def train_taskA(self, collection, model_config, train_config, entity_type):
+        print(f"Training taskA-{entity_type} model.")  #this should be a log
+        dataset = SimpleWordIndexDataset(collection, lambda x: x.label == entity_type)
+        model = BiLSTM_CRF(
+            dataset.word_vector_size,
+            model_config.tagset_size,
+            model_config.hidden_dim
+        )
+        optimizer = optim.SGD(
+            model.parameters(),
+            lr=train_config.optimizer.lr,
+            weight_decay=train_config.optimizer.weight_decay
+        )
 
         for epoch in range(train_config.epochs):
-            correct = 0
-            total = 0
-            running_loss = 0.0
-
+            running_loss = 0
             for data in tqdm(dataset):
                 X, y = data
-                optimizer.zero_grad()
-
-                # forward + backward + optimize
-                output = model(X)
-
-                loss = criterion(output, y)
-                loss.backward(retain_graph=train_config.loss.retain_graph)
-
+                model.zero_grad()
+                loss = model.neg_log_likelihood(X, y)
+                loss.backward()
                 optimizer.step()
-
                 running_loss += loss.item()
 
-                predicted = torch.argmax(output, -1)
-                
-                total += 1
-                correct += int(predicted == y)
+            correct = 0
+            total = 0
+            with torch.no_grad():
+                for data in tqdm(dataset):
+                    X, y = data
+                    _, predicted = model(X)
+                    correct += sum(torch.tensor(predicted) == y).item()
+                    total += len(predicted)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] loss: {running_loss / len(dataset) :0.3}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
