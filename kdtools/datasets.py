@@ -51,6 +51,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         self.flatdata = reduce(add, self.dataxsentence)
 
         self.word_vector_size = len(get_spacy_vector("hola"))
+        self.sentences = collection.sentences
 
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
@@ -180,7 +181,8 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 if ok:
                     data.append(sent_data)
             except:
-                print(sentence)
+                pass
+                # print(sentence)
         return data
 
     def _get_sentence_data(self, sentence: Sentence):
@@ -193,7 +195,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 for name, dep in actions:
                     samples.append(
                         (
-                            (self._copy_state(state), sentence.text),
+                            (self._copy_state(state), sentence),
                             (name, dep)
                         )
                     )
@@ -207,7 +209,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         o,t,h,d = state
         return (o.copy(), t.copy(), h.copy(), d.copy())
 
-    def _encode_word_sequence(self, words):
+    def encode_word_sequence(self, words):
         return torch.tensor([get_spacy_vector(word) for word in words+["."]])
 
     def __len__(self):
@@ -217,15 +219,30 @@ class RelationsDependencyParseActionsDataset(Dataset):
         inp, out = self.flatdata[index]
         state, sentence = inp
         action, rel = out
-        words = [sentence[start:end] for (start, end) in get_spans(sentence)]
+        words = [sentence.text[start:end] for (start, end) in get_spans(sentence.text)]
         o,t,h,d = state
 
         return (
-                self._encode_word_sequence([words[i - 1] for i in o]),
-                self._encode_word_sequence([words[i - 1] for i in t]),
+                self.encode_word_sequence([words[i - 1] for i in o]),
+                self.encode_word_sequence([words[i - 1] for i in t]),
                 torch.LongTensor([self.action2index[action]]),
                 torch.LongTensor([self.relation2index[rel]])
         )
+
+    @property
+    def evaluation(self):
+        ret = []
+        for sentence in self.sentences:
+            spans = get_spans(sentence.text)
+            sent_size = len(spans)
+            ret.append(
+                (
+                    spans,
+                    sentence,
+                    ([], [i for i in range(sent_size, 0, -1)], [0]*(sent_size + 1), ["NONE"]*(sent_size + 1))
+                )
+            )
+        return ret
 
 class SimpleWordIndexDataset(Dataset):
     def __init__(self, collection: Collection, entity_criteria = lambda x: x):

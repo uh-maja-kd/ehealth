@@ -2,9 +2,10 @@ import torch
 import torch.optim as optim
 from torch.nn import CrossEntropyLoss
 from tqdm import tqdm
+from itertools import product
 
 from scripts.submit import Algorithm
-from scripts.utils import Collection, Keyphrase
+from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
 from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset
@@ -44,7 +45,45 @@ class UHMajaModel(Algorithm):
 
 
     def run_taskB(self, collection: Collection):
-        pass
+        print("Running taskB")
+        dataset = RelationsDependencyParseActionsDataset(collection)
+        model = self.model_taskB
+
+        it = 0
+        for spans, sentence, state in dataset.evaluation:
+            it += 1
+            words = [sentence.text[start:end] for (start, end) in spans]
+            while state[1]:
+                o, t, h, d = state
+
+                X = (
+                    dataset.encode_word_sequence([words[i - 1] for i in o]).view(1,-1,dataset.word_vector_size),
+                    dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1,dataset.word_vector_size)
+                )
+                output_act, output_rel = model(X)
+                action = dataset.actions[torch.argmax(output_act)]
+                relation = dataset.relations[torch.argmax(output_rel)]
+
+                try:
+                    if action in ["LEFT", "RIGHT"]:
+                        if action == "LEFT":
+                            origidx = t[-1]
+                            destidx = o[-1]
+                        else:
+                            origidx = o[-1]
+                            destidx = t[-1]
+
+                        origins = [kp.id for kp in sentence.keyphrases if spans[origidx-1] in kp.spans]
+                        destinations = [kp.id for kp in sentence.keyphrases if spans[destidx-1] in kp.spans]
+
+                        for origin, destination in product(origins, destinations):
+                            sentence.relations.append(Relation(sentence, origin, destination, relation))
+
+                    dataset.actions_funcs[action]["do"](state, relation)
+                except:
+                    print(it)
+                    state[1].clear()
+
 
     def train(self, collection: Collection):
         builder = ConfigBuilder()
@@ -54,16 +93,16 @@ class UHMajaModel(Algorithm):
         train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        self.models_taskA = {
-            entity_type: self.train_taskA(
-                collection,
-                model_taskA_config,
-                train_taskA_config.__getattr__(entity_type),
-                entity_type
-            )
-            for entity_type in ["Concept", "Action", "Reference", "Predicate"]
-        }
-        # self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        # self.models_taskA = {
+        #     entity_type: self.train_taskA(
+        #         collection,
+        #         model_taskA_config,
+        #         train_taskA_config.__getattr__(entity_type),
+        #         entity_type
+        #     )
+        #     for entity_type in ["Concept", "Action", "Reference", "Predicate"]
+        # }
+        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config, entity_type):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
