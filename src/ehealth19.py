@@ -57,7 +57,7 @@ class UHMajaModel(Algorithm):
                 o, t, h, d = state
 
                 X = (
-                    dataset.encode_word_sequence([words[i - 1] for i in o]).view(1,-1,dataset.word_vector_size),
+                    dataset.encode_word_sequence(["."]+[words[i - 1] for i in o]).view(1,-1,dataset.word_vector_size),
                     dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1,dataset.word_vector_size)
                 )
                 output_act, output_rel = model(X)
@@ -156,11 +156,17 @@ class UHMajaModel(Algorithm):
             lr=train_config.optimizer.lr,
             momentum=train_config.optimizer.momentum
         )
+        # criterion_act = CrossEntropyLoss(weight = dataset.get_actions_weights())
+        # criterion_rel = CrossEntropyLoss(weight = dataset.get_relations_weights())
         criterion_act = CrossEntropyLoss()
         criterion_rel = CrossEntropyLoss()
 
         for epoch in range(train_config.epochs):
+            correct_act = 0
+            correct_rel = 0
             correct = 0
+            total_act = 0
+            total_rel = 0
             total = 0
             running_loss_act = 0.0
             running_loss_rel = 0.0
@@ -173,24 +179,38 @@ class UHMajaModel(Algorithm):
                 # forward + backward + optimize
                 output_act, output_rel = model(X)
 
-                loss_act = criterion_act(output_act, y_act)
-                loss_act.backward(retain_graph=True)
+                if y_rel is not None:
+                    loss_rel = criterion_rel(output_rel, y_rel)
+                    loss_rel.backward(retain_graph=True)
 
-                loss_rel = criterion_rel(output_rel, y_rel)
-                loss_rel.backward()
+                    running_loss_rel += loss_rel.item()
+                    total_rel += 1
+
+                loss_act = criterion_act(output_act, y_act)
+                loss_act.backward()
+
+                running_loss_act += loss_act.item()
+                total_act += 1
+                total += 1
 
                 optimizer.step()
 
-                running_loss_act += loss_act.item()
-                running_loss_rel += loss_rel.item()
-
                 predicted_act = torch.argmax(output_act, -1)
                 predicted_rel = torch.argmax(output_rel, -1)
-                total += 1
-                correct += int(predicted_act == y_act and predicted_rel == y_rel)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset)}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset)}")
+                is_act = predicted_act == y_act
+                is_correct = is_act
+                if y_rel is not None:
+                    is_rel = predicted_rel == y_rel
+                    correct_rel += int(is_rel)
+                    is_correct &= is_rel
+                correct_act += int(is_act)
+                correct += int(is_correct)
+
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
+            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total_rel}")
+            print(f"[{epoch + 1}] accuracy_act: {correct_act / total_act}")
+            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total_rel}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
