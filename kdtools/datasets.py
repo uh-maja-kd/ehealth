@@ -19,7 +19,6 @@ class RelationsDependencyParseActionsDataset(Dataset):
     def __init__(self, collection: Collection):
         self.actions = ["IGNORE", "LEFT", "RIGHT", "REDUCE", "SHIFT"]
         self.relations = [
-            "none",
             "subject",
             "target",
             "in-place",
@@ -226,7 +225,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 self.encode_word_sequence(["."] + [words[i - 1] for i in o]),
                 self.encode_word_sequence([words[i - 1] for i in t]),
                 torch.LongTensor([self.action2index[action]]),
-                torch.LongTensor([self.relation2index[rel]])
+                torch.LongTensor([self.relation2index[rel]]) if rel != "none" else None
         )
 
     @property
@@ -249,8 +248,9 @@ class RelationsDependencyParseActionsDataset(Dataset):
         for data in self:
             *X, y_act, y_rel = data
             count[self.actions[y_act.item()]] += 1
-        count = torch.tensor(list(count.values()), dtype = torch.float)
-        return count.max()/count
+        count = torch.tensor(list(count.values()), dtype=torch.float)
+        print(count)
+        return count.min()/count
 
     def get_relations_weights(self):
         count = {relation:0 for relation in self.relations}
@@ -258,8 +258,9 @@ class RelationsDependencyParseActionsDataset(Dataset):
             *X, y_act, y_rel = data
             if y_rel is not None:
                 count[self.relations[y_rel.item()]] += 1
-        count = torch.tensor(list(count.values()), dtype = torch.float)
-        return count.max()/count
+        count = torch.tensor(list(count.values()), dtype=torch.float)
+        print(count)
+        return count.min()/count
 
 class SimpleWordIndexDataset(Dataset):
     def __init__(self, collection: Collection, entity_criteria = lambda x: x):

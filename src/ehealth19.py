@@ -12,6 +12,8 @@ from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseAct
 from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
 from kdtools.utils.bmewov import BMEWOV
 
+from numpy.random import random
+
 
 class UHMajaModel(Algorithm):
     def __init__(self):
@@ -35,6 +37,7 @@ class UHMajaModel(Algorithm):
         idx = 0
         for entity_type, model in self.models_taskA.items():
             print(entity_type)
+            model.eval()
             dataset = SimpleWordIndexDataset(collection)
             for spans, sentence, X in tqdm(dataset.evaluation):
                 output = [dataset.labels[idx] for idx in model(X)[1]]
@@ -49,8 +52,9 @@ class UHMajaModel(Algorithm):
         dataset = RelationsDependencyParseActionsDataset(collection)
         model = self.model_taskB
 
+        model.eval()
         it = 0
-        for spans, sentence, state in dataset.evaluation:
+        for spans, sentence, state in tqdm(dataset.evaluation):
             it += 1
             words = [sentence.text[start:end] for (start, end) in spans]
             while state[1]:
@@ -147,6 +151,7 @@ class UHMajaModel(Algorithm):
         model = BiLSTMDoubleDenseOracleParser(
             len(dataset.actions),
             len(dataset.relations),
+            model_config.dropout_ratio,
             dataset.word_vector_size,
             model_config.hidden_size,
             batch_first=True
@@ -161,22 +166,39 @@ class UHMajaModel(Algorithm):
         criterion_act = CrossEntropyLoss()
         criterion_rel = CrossEntropyLoss()
 
+        act_weights = dataset.get_actions_weights()
+        rel_weights = dataset.get_relations_weights()
+
         for epoch in range(train_config.epochs):
             correct = 0
+            correct_act = 0
+            correct_rel = 0
+            total = 0
+            total_act = 0
+            total_rel = 0
             running_loss_act = 0.0
             running_loss_rel = 0.0
 
             for data in tqdm(dataset):
                 *X, y_act, y_rel = data
-                X = [x.view(1,-1,dataset.word_vector_size) for x in X]
+                X = [x.view(1, -1, dataset.word_vector_size) for x in X]
+
+                if random() > act_weights[y_act.item()]:
+                    continue
+
+                if y_rel is not None and random() > rel_weights[y_rel.item()]:
+                    continue
+
                 optimizer.zero_grad()
 
                 # forward + backward + optimize
+                model.train()
                 output_act, output_rel = model(X)
 
-                loss_rel = criterion_rel(output_rel, y_rel)
-                loss_rel.backward(retain_graph=True)
-                running_loss_rel += loss_rel.item()
+                if y_rel is not None:
+                    loss_rel = criterion_rel(output_rel, y_rel)
+                    loss_rel.backward(retain_graph=True)
+                    running_loss_rel += loss_rel.item()
 
                 loss_act = criterion_act(output_act, y_act)
                 loss_act.backward()
@@ -184,14 +206,24 @@ class UHMajaModel(Algorithm):
 
                 optimizer.step()
 
+                #collecting data for metrics
+                model.eval()
+                output_act, output_rel = model(X)
                 predicted_act = torch.argmax(output_act, -1)
                 predicted_rel = torch.argmax(output_rel, -1)
 
-                correct += int(predicted_act == y_act and predicted_rel == y_rel)
+                total_act += 1
+                total_rel += int(y_rel is not None)
+                total += 1
+                correct_act += int(predicted_act == y_act)
+                correct_rel += int(predicted_rel == y_rel) if y_rel is not None else 0
+                correct += int(predicted_act == y_act and (predicted_rel == y_rel if y_rel is not None else True))
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / len(dataset)}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / len(dataset)}")
-            print(f"[{epoch + 1}] accuracy: {correct / len(dataset)}")
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
+            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total_rel}")
+            print(f"[{epoch + 1}] accuracy_act: {correct_act / total_act}")
+            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total_rel}")
+            print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
 

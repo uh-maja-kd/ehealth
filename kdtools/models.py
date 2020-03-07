@@ -162,12 +162,16 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
     def __init__(self,
         actions_no,
         relations_no,
+        dropout_ratio,
         *args,
         **kargs
     ):
         super().__init__()
         self.bilstmencoder_sent = BiLSTMEncoder(*args, **kargs)
         self.bilstmencoder_stack = BiLSTMEncoder(*args, **kargs)
+
+        self.dropout_sent = nn.Dropout(p = dropout_ratio)
+        self.dropout_stack = nn.Dropout(p = dropout_ratio)
 
         dense_input_size = self.bilstmencoder_sent.hidden_size + self.bilstmencoder_stack.hidden_size
 
@@ -178,7 +182,7 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
         stack_encoded, _ = self.bilstmencoder_stack(x[0])
         sent_encoded, _ = self.bilstmencoder_sent(x[1])
 
-        encoded = torch.cat([stack_encoded, sent_encoded], 1)
+        encoded = torch.cat([self.dropout_stack(stack_encoded), (self.dropout_sent(sent_encoded))], 1)
 
         action_out = F.softmax(self.action_dense(encoded), 1)
         relation_out = F.softmax(self.relation_dense(encoded), 1)
