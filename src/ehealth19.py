@@ -8,9 +8,11 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
-from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset
+from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset, RelationsDatasetEmbedding
 from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
 from kdtools.utils.bmewov import BMEWOV
+
+from gensim.models.word2vec import Word2VecKeyedVectors
 
 from numpy.random import random
 
@@ -49,8 +51,8 @@ class UHMajaModel(Algorithm):
 
     def run_taskB(self, collection: Collection):
         print("Running taskB")
-        dataset = RelationsDependencyParseActionsDataset(collection)
         model = self.model_taskB
+        dataset = RelationsDatasetEmbedding(collection, model.wv)
 
         model.eval()
         it = 0
@@ -61,8 +63,8 @@ class UHMajaModel(Algorithm):
                 o, t, h, d = state
 
                 X = (
-                    dataset.encode_word_sequence(["."]+[words[i - 1] for i in o]).view(1,-1,dataset.word_vector_size),
-                    dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1,dataset.word_vector_size)
+                    dataset.encode_word_sequence(["<padding>"]+[words[i - 1] for i in o]).view(1,-1),
+                    dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1)
                 )
                 output_act, output_rel = model(X)
                 action = dataset.actions[torch.argmax(output_act)]
@@ -84,7 +86,8 @@ class UHMajaModel(Algorithm):
                             sentence.relations.append(Relation(sentence, origin, destination, relation))
 
                     dataset.actions_funcs[action]["do"](state, relation)
-                except:
+                except Exception as e:
+                    # print(e)
                     print(it)
                     state[1].clear()
 
@@ -147,47 +150,35 @@ class UHMajaModel(Algorithm):
         return model
 
     def train_taskB(self, collection: Collection, model_config, train_config):
-        dataset = RelationsDependencyParseActionsDataset(collection)
+        wv = Word2VecKeyedVectors.load(model_config.embedding_path)
+        dataset = RelationsDatasetEmbedding(collection, wv)
         model = BiLSTMDoubleDenseOracleParser(
-            len(dataset.actions),
-            len(dataset.relations),
-            model_config.dropout_ratio,
             dataset.word_vector_size,
-            model_config.hidden_size,
-            batch_first=True
+            model_config.lstm_hidden_size,
+            model_config.dropout_ratio,
+            model_config.hidden_dense_size,
+            wv,
+            len(dataset.actions),
+            len(dataset.relations)
         )
-        optimizer = optim.SGD(
-            model.parameters(),
-            lr=train_config.optimizer.lr,
-            momentum=train_config.optimizer.momentum
+        return model
+        optimizer = optim.Adam(
+            model.parameters()
         )
-        # criterion_act = CrossEntropyLoss(weight = dataset.get_actions_weights())
-        # criterion_rel = CrossEntropyLoss(weight = dataset.get_relations_weights())
         criterion_act = CrossEntropyLoss()
         criterion_rel = CrossEntropyLoss()
-
-        act_weights = dataset.get_actions_weights()
-        rel_weights = dataset.get_relations_weights()
 
         for epoch in range(train_config.epochs):
             correct = 0
             correct_act = 0
             correct_rel = 0
             total = 0
-            total_act = 0
-            total_rel = 0
             running_loss_act = 0.0
             running_loss_rel = 0.0
 
             for data in tqdm(dataset):
                 *X, y_act, y_rel = data
-                X = [x.view(1, -1, dataset.word_vector_size) for x in X]
-
-                if random() > act_weights[y_act.item()]:
-                    continue
-
-                if y_rel is not None and random() > rel_weights[y_rel.item()]:
-                    continue
+                X = [x.view(1, -1) for x in X]
 
                 optimizer.zero_grad()
 
@@ -195,10 +186,9 @@ class UHMajaModel(Algorithm):
                 model.train()
                 output_act, output_rel = model(X)
 
-                if y_rel is not None:
-                    loss_rel = criterion_rel(output_rel, y_rel)
-                    loss_rel.backward(retain_graph=True)
-                    running_loss_rel += loss_rel.item()
+                loss_rel = criterion_rel(output_rel, y_rel)
+                loss_rel.backward(retain_graph=True)
+                running_loss_rel += loss_rel.item()
 
                 loss_act = criterion_act(output_act, y_act)
                 loss_act.backward()
@@ -212,17 +202,17 @@ class UHMajaModel(Algorithm):
                 predicted_act = torch.argmax(output_act, -1)
                 predicted_rel = torch.argmax(output_rel, -1)
 
-                total_act += 1
-                total_rel += int(y_rel is not None)
                 total += 1
-                correct_act += int(predicted_act == y_act)
-                correct_rel += int(predicted_rel == y_rel) if y_rel is not None else 0
-                correct += int(predicted_act == y_act and (predicted_rel == y_rel if y_rel is not None else True))
+                is_act = predicted_act == y_act
+                is_rel = predicted_rel == y_rel
+                correct_act += int(is_act)
+                correct_rel += int(is_rel)
+                correct += int(is_act and is_rel)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total_rel}")
-            print(f"[{epoch + 1}] accuracy_act: {correct_act / total_act}")
-            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total_rel}")
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / total}")
+            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total}")
+            print(f"[{epoch + 1}] accuracy_act: {correct_act / total}")
+            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model

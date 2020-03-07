@@ -7,6 +7,8 @@ from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
 from kdtools.utils.preproc import get_spans, get_spacy_vector
+from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CURRENCY as currencies
+import re
 
 class Node:
     def __init__(self):
@@ -19,6 +21,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
     def __init__(self, collection: Collection):
         self.actions = ["IGNORE", "LEFT", "RIGHT", "REDUCE", "SHIFT"]
         self.relations = [
+            "none",
             "subject",
             "target",
             "in-place",
@@ -49,8 +52,11 @@ class RelationsDependencyParseActionsDataset(Dataset):
         self.dataxsentence = self._get_data(collection)
         self.flatdata = reduce(add, self.dataxsentence)
 
-        self.word_vector_size = len(get_spacy_vector("hola"))
         self.sentences = collection.sentences
+
+    @property
+    def word_vector_size(self):
+        return len(get_spacy_vector("hola"))
 
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
@@ -179,9 +185,11 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 ok, sent_data = self._get_sentence_data(sentence)
                 if ok:
                     data.append(sent_data)
-            except:
+            except Exception as e:
                 pass
                 # print(sentence)
+                # print([kp.spans for kp in sentence.keyphrases])
+                # print(e)
         return data
 
     def _get_sentence_data(self, sentence: Sentence):
@@ -222,10 +230,10 @@ class RelationsDependencyParseActionsDataset(Dataset):
         o,t,h,d = state
 
         return (
-                self.encode_word_sequence(["."] + [words[i - 1] for i in o]),
+                self.encode_word_sequence(["<padding>"] + [words[i - 1] for i in o]),
                 self.encode_word_sequence([words[i - 1] for i in t]),
                 torch.LongTensor([self.action2index[action]]),
-                torch.LongTensor([self.relation2index[rel]]) if rel != "none" else None
+                torch.LongTensor([self.relation2index[rel]])
         )
 
     @property
@@ -261,6 +269,39 @@ class RelationsDependencyParseActionsDataset(Dataset):
         count = torch.tensor(list(count.values()), dtype=torch.float)
         print(count)
         return count.min()/count
+
+
+class RelationsDatasetEmbedding(RelationsDependencyParseActionsDataset):
+    def __init__(self, collection: Collection, wv):
+        super().__init__(collection)
+        self.wv = wv
+        self.vocab = wv.vocab
+
+    @property
+    def word_vector_size(self):
+        return len(self.wv.vectors[0])
+
+    def map_word(self, word: str):
+        tokens = ['<padding>', '<unseen>', '<notlatin>', '<unit>', '<number>']
+
+        if word in tokens:
+            return word
+        if re.findall(r"[0-9]", word):
+            return "<number>"
+        if re.fullmatch(units,word):
+            return "<unit>"
+        if re.fullmatch(currencies, word):
+            return "<currency>"
+        if len(re.findall(latin_chars, word)) != len(word):
+            return "<notlatin>"
+        return word
+
+    def get_word_index(self, word):
+        word = self.map_word(word)
+        return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
+
+    def encode_word_sequence(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
 
 class SimpleWordIndexDataset(Dataset):
     def __init__(self, collection: Collection, entity_criteria = lambda x: x):

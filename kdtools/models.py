@@ -160,29 +160,48 @@ class BiLSTM_CRF(nn.Module):
 
 class BiLSTMDoubleDenseOracleParser(nn.Module):
     def __init__(self,
-        actions_no,
-        relations_no,
+        input_size,
+        lstm_hidden_size,
         dropout_ratio,
-        *args,
-        **kargs
+        hidden_dense_size,
+        wv,
+        actions_no,
+        relations_no
     ):
         super().__init__()
-        self.bilstmencoder_sent = BiLSTMEncoder(*args, **kargs)
-        self.bilstmencoder_stack = BiLSTMEncoder(*args, **kargs)
+
+        self.wv = wv
+
+        self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
+
+        self.bilstmencoder_sent = BiLSTMEncoder(input_size, lstm_hidden_size, batch_first=True)
+        self.bilstmencoder_stack = BiLSTMEncoder(input_size, lstm_hidden_size, batch_first=True)
 
         self.dropout_sent = nn.Dropout(p = dropout_ratio)
         self.dropout_stack = nn.Dropout(p = dropout_ratio)
 
-        dense_input_size = self.bilstmencoder_sent.hidden_size + self.bilstmencoder_stack.hidden_size
+        self.dense_sent = nn.Linear(self.bilstmencoder_sent.hidden_size, hidden_dense_size)
+        self.dense_stack = nn.Linear(self.bilstmencoder_stack.hidden_size, hidden_dense_size)
+
+        dense_input_size = 2*hidden_dense_size
 
         self.action_dense = nn.Linear(dense_input_size, actions_no)
         self.relation_dense = nn.Linear(dense_input_size, relations_no)
 
     def forward(self, x):
-        stack_encoded, _ = self.bilstmencoder_stack(x[0])
-        sent_encoded, _ = self.bilstmencoder_sent(x[1])
+        x0 = self.embedding(x[0])
+        x1 = self.embedding(x[1])
 
-        encoded = torch.cat([self.dropout_stack(stack_encoded), (self.dropout_sent(sent_encoded))], 1)
+        stack_encoded, _ = self.bilstmencoder_stack(x0)
+        sent_encoded, _ = self.bilstmencoder_sent(x1)
+
+        stack_encoded = self.dropout_stack(stack_encoded)
+        sent_encoded = self.dropout_sent(sent_encoded)
+
+        stack_encoded = torch.tanh(self.dense_stack(stack_encoded))
+        sent_encoded = torch.tanh(self.dense_sent(sent_encoded))
+
+        encoded = torch.cat([stack_encoded, sent_encoded], 1)
 
         action_out = F.softmax(self.action_dense(encoded), 1)
         relation_out = F.softmax(self.relation_dense(encoded), 1)

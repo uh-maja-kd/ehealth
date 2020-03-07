@@ -1,6 +1,6 @@
 import spacy
 
-nlp = spacy.load("es_core_news_md")
+# nlp = spacy.load("es_core_news_md")
 
 
 def get_spans(sentence: str):
@@ -13,9 +13,10 @@ def get_spans(sentence: str):
         if begun and c in " " + punct:
             begun = False
             spans.append((start, i))
-            if c in punct:
-                spans.append((i, i))
-    return spans
+        if c in punct:
+            spans.append((i, i+1))
+
+    return spans[:-1]
 
 
 def get_spacy_vector(word: str):
