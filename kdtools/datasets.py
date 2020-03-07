@@ -21,7 +21,6 @@ class RelationsDependencyParseActionsDataset(Dataset):
     def __init__(self, collection: Collection):
         self.actions = ["IGNORE", "LEFT", "RIGHT", "REDUCE", "SHIFT"]
         self.relations = [
-            "none",
             "subject",
             "target",
             "in-place",
@@ -233,7 +232,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 self.encode_word_sequence(["<padding>"] + [words[i - 1] for i in o]),
                 self.encode_word_sequence([words[i - 1] for i in t]),
                 torch.LongTensor([self.action2index[action]]),
-                torch.LongTensor([self.relation2index[rel]])
+                torch.LongTensor([self.relation2index[rel]]) if rel != "none" else None
         )
 
     @property

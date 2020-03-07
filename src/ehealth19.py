@@ -161,17 +161,18 @@ class UHMajaModel(Algorithm):
             len(dataset.actions),
             len(dataset.relations)
         )
-        return model
         optimizer = optim.Adam(
             model.parameters()
         )
-        criterion_act = CrossEntropyLoss()
-        criterion_rel = CrossEntropyLoss()
+        criterion_act = CrossEntropyLoss(weight = dataset.get_actions_weights())
+        criterion_rel = CrossEntropyLoss(weight = dataset.get_relations_weights())
 
         for epoch in range(train_config.epochs):
             correct = 0
             correct_act = 0
             correct_rel = 0
+            total_act = 0
+            total_rel = 0
             total = 0
             running_loss_act = 0.0
             running_loss_rel = 0.0
@@ -186,9 +187,10 @@ class UHMajaModel(Algorithm):
                 model.train()
                 output_act, output_rel = model(X)
 
-                loss_rel = criterion_rel(output_rel, y_rel)
-                loss_rel.backward(retain_graph=True)
-                running_loss_rel += loss_rel.item()
+                if y_rel is not None:
+                    loss_rel = criterion_rel(output_rel, y_rel)
+                    loss_rel.backward(retain_graph=True)
+                    running_loss_rel += loss_rel.item()
 
                 loss_act = criterion_act(output_act, y_act)
                 loss_act.backward()
@@ -202,17 +204,17 @@ class UHMajaModel(Algorithm):
                 predicted_act = torch.argmax(output_act, -1)
                 predicted_rel = torch.argmax(output_rel, -1)
 
+                total_act += 1
+                total_rel += int(y_rel is not None)
                 total += 1
-                is_act = predicted_act == y_act
-                is_rel = predicted_rel == y_rel
-                correct_act += int(is_act)
-                correct_rel += int(is_rel)
-                correct += int(is_act and is_rel)
+                correct_act += int(predicted_act == y_act)
+                correct_rel += int(predicted_rel == y_rel) if y_rel is not None else 0
+                correct += int(predicted_act == y_act and (predicted_rel == y_rel if y_rel is not None else True))
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / total}")
-            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total}")
-            print(f"[{epoch + 1}] accuracy_act: {correct_act / total}")
-            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total}")
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
+            print(f"[{epoch + 1}] loss_rel: {running_loss_rel / total_rel}")
+            print(f"[{epoch + 1}] accuracy_act: {correct_act / total_act}")
+            print(f"[{epoch + 1}] accuracy_rel: {correct_rel / total_rel}")
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
