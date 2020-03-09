@@ -368,8 +368,8 @@ class EmbeddingComponents:
         return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
 
 class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponents):
-    def __init__(self, collection: Collection, wv):
-        SimpleWordIndexDataset.__init__(self, collection)
+    def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
+        SimpleWordIndexDataset.__init__(self, collection, entity_criteria)
         EmbeddingComponents.__init__(self, wv)
 
     def _encode_word_sequence(self, words):

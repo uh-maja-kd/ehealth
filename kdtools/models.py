@@ -158,6 +158,63 @@ class BiLSTM_CRF(nn.Module):
         score, tag_seq = self._viterbi_decode(lstm_feats)
         return score, tag_seq
 
+class MultiheadAttention(nn.Module):
+
+    def __init__(self, input_dim, no_heads):
+        super().__init__()
+
+        self.query_dense = nn.Linear(input_dim, input_dim)
+        self.key_dense = nn.Linear(input_dim, input_dim)
+        self.value_dense = nn.Linear(input_dim, input_dim)
+
+        self.mh_attention = nn.MultiheadAttention(input_dim, no_heads)
+
+    def forward(self, x):
+        query = self.query_dense(x)
+        key = self.key_dense(x)
+        value = self.value_dense(x)
+
+        return self.mh_attention(query, key, value)[0]
+
+class PretrainedEmbedding(nn.Module):
+
+    def __init__(self, wv):
+        super().__init__()
+        self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
+
+    def forward(self, x):
+        return self.embedding(x)
+
+
+class EmbeddingBiLSTM_CRF(nn.Module):
+    def __init__(self, tagset_size, hidden_dim, wv):
+        super().__init__()
+        embed_size = len(wv.vectors[0])
+        self.embedding = PretrainedEmbedding(wv)
+        self.bislstmcrf = BiLSTM_CRF(embed_size, tagset_size, hidden_dim)
+
+    def neg_log_likelihood(self, X, y):
+        X = self.embedding(X)
+        return self.bislstmcrf.neg_log_likelihood(X, y)
+
+    def forward(self, X):
+        return self.bislstmcrf(self.embedding(X))
+
+class EmbeddingAttentionBiLSTM_CRF(nn.Module):
+    def __init__(self, tagset_size, hidden_dim, no_heads, wv):
+        super().__init__()
+        embed_size = len(wv.vectors[0])
+        self.embedding = PretrainedEmbedding(wv)
+        self.attention = MultiheadAttention(embed_size, no_heads)
+        self.bislstmcrf = BiLSTM_CRF(embed_size, tagset_size, hidden_dim)
+
+    def neg_log_likelihood(self, X, y):
+        X = self.attention(self.embedding(X))
+        return self.bislstmcrf.neg_log_likelihood(X, y)
+
+    def forward(self, X):
+        return self.bislstmcrf(self.attention(self.embedding(X)))
+
 class BiLSTMDoubleDenseOracleParser(nn.Module):
     def __init__(self,
         input_size,

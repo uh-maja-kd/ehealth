@@ -8,8 +8,17 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
-from kdtools.datasets import SimpleWordIndexDataset, RelationsDependencyParseActionsDataset, RelationsDatasetEmbedding
-from kdtools.models import BiLSTMDoubleDenseOracleParser, BiLSTM_CRF
+from kdtools.datasets import (
+    SimpleWordIndexDataset,
+    RelationsDependencyParseActionsDataset,
+    RelationsDatasetEmbedding,
+    SentenceEmbeddingDataset
+)
+from kdtools.models import (
+    BiLSTMDoubleDenseOracleParser,
+    EmbeddingAttentionBiLSTM_CRF,
+    EmbeddingBiLSTM_CRF
+)
 from kdtools.utils.bmewov import BMEWOV
 
 from gensim.models.word2vec import Word2VecKeyedVectors
@@ -19,12 +28,7 @@ from numpy.random import random
 
 class UHMajaModel(Algorithm):
     def __init__(self):
-        self.models_taskA = {
-            "Concept": BiLSTM_CRF(50, 6, 100),
-            "Action": BiLSTM_CRF(50, 6, 100),
-            "Predicate": BiLSTM_CRF(50, 6, 100),
-            "Reference": BiLSTM_CRF(50, 6, 100)
-        }
+        self.models_taskA = {}
         self.model_taskB = None
 
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
@@ -37,11 +41,14 @@ class UHMajaModel(Algorithm):
     def run_taskA(self, collection: Collection):
         print("Running taskA")
         idx = 0
+        wiki_wv_path = 'C:/Users/ale/Desktop/5to/Tesis/ehealth/trained/embeddings/wiki_classic/wiki_classic.wv'
+        wv = Word2VecKeyedVectors.load(wiki_wv_path)
         for entity_type, model in self.models_taskA.items():
             print(entity_type)
             model.eval()
-            dataset = SimpleWordIndexDataset(collection)
+            dataset = SentenceEmbeddingDataset(collection, wv)
             for spans, sentence, X in tqdm(dataset.evaluation):
+                X = X.view(1,-1)
                 output = [dataset.labels[idx] for idx in model(X)[1]]
                 kps = [[spans[idx] for idx in span_list] for span_list in BMEWOV.decode(output)]
                 for kp_spans in kps:
@@ -100,25 +107,26 @@ class UHMajaModel(Algorithm):
         train_taskB_config = builder.parse_config('./configs/config_Train_TaskB.json')
         train_taskA_config = builder.parse_config('./configs/config_Train_TaskA.json')
 
-        # self.models_taskA = {
-        #     entity_type: self.train_taskA(
-        #         collection,
-        #         model_taskA_config,
-        #         train_taskA_config.__getattr__(entity_type),
-        #         entity_type
-        #     )
-        #     for entity_type in ["Concept", "Action", "Reference", "Predicate"]
-        # }
-        self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
+        self.models_taskA = {
+            entity_type: self.train_taskA(
+                collection,
+                model_taskA_config,
+                train_taskA_config.__getattr__(entity_type),
+                entity_type
+            )
+            for entity_type in ["Concept", "Action", "Reference", "Predicate"]
+        }
+        # self.model_taskB = self.train_taskB(collection, model_taskB_config, train_taskB_config)
 
     def train_taskA(self, collection, model_config, train_config, entity_type):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
-        dataset = SimpleWordIndexDataset(collection, lambda x: x.label == entity_type)
-        model = BiLSTM_CRF(
-            dataset.word_vector_size,
-            model_config.tagset_size,
-            model_config.hidden_dim
-        )
+
+        wiki_wv_path = 'C:/Users/ale/Desktop/5to/Tesis/ehealth/trained/embeddings/wiki_classic/wiki_classic.wv'
+        wv = Word2VecKeyedVectors.load(wiki_wv_path)
+        dataset = SentenceEmbeddingDataset(collection, wv, lambda x: x.label == entity_type)
+
+        model = EmbeddingBiLSTM_CRF(6, 50, wv)
+
         optimizer = optim.SGD(
             model.parameters(),
             lr=train_config.optimizer.lr,
@@ -129,6 +137,7 @@ class UHMajaModel(Algorithm):
             running_loss = 0
             for data in tqdm(dataset):
                 X, y = data
+                X = X.view(1,-1)
                 model.zero_grad()
                 loss = model.neg_log_likelihood(X, y)
                 loss.backward()
@@ -140,6 +149,7 @@ class UHMajaModel(Algorithm):
             with torch.no_grad():
                 for data in tqdm(dataset):
                     X, y = data
+                    X = X.view(1,-1)
                     _, predicted = model(X)
                     correct += sum(torch.tensor(predicted) == y).item()
                     total += len(predicted)
