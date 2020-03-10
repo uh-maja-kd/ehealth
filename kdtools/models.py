@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 import kdtools
-from kdtools.layers import BiLSTMEncoder
+# from kdtools.layers import BiLSTMEncoder
 
 def argmax(vec):
     # return the argmax as a python int
@@ -18,6 +18,33 @@ def log_sum_exp(vec):
     max_score_broadcast = max_score.view(1, -1).expand(1, vec.size()[1])
     return max_score + \
         torch.log(torch.sum(torch.exp(vec - max_score_broadcast)))
+
+class BiLSTMEncoder(nn.Module):
+    def __init__(self, input_size, hidden_size, return_sequence = False, **kargs):
+        super().__init__()
+        self.layer = nn.LSTM(input_size, hidden_size, bidirectional=True)
+
+        self.hidden_size = 2 * self.layer.hidden_size
+
+        self.return_sequence = return_sequence
+
+    def forward(self, input, hx=None):
+        output, hidden = self.layer(input, hx)
+
+        hidden_size = self.layer.hidden_size
+
+        left2right = output[:, :, :hidden_size]
+        right2left = output[:, :, hidden_size:].flip([1])
+
+        output = torch.cat((left2right, right2left), -1)
+
+        if not self.return_sequence:
+            if self.layer.batch_first:
+                output = output[-1,:,:]
+            else:
+                output = output[:,-1,:]
+
+        return output, hidden
 
 class BiLSTM_CRF(nn.Module):
 
@@ -184,7 +211,6 @@ class PretrainedEmbedding(nn.Module):
 
     def forward(self, x):
         return self.embedding(x)
-
 
 class EmbeddingBiLSTM_CRF(nn.Module):
     def __init__(self, tagset_size, hidden_dim, wv):
