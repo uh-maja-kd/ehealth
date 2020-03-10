@@ -7,6 +7,36 @@ from torch.nn.parameter import Parameter
 import kdtools
 # from kdtools.layers import BiLSTMEncoder
 
+class CharRNN(nn.Module):
+    
+    def __init__(self, input_size, hidden_size, n_layers=1, drop_prob=0.5):
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.n_layers = n_layers
+        self.hidden_size = hidden_size
+        
+        self.bilstmencoder = BiLSTMEncoder(input_size, hidden_size, batch_first=True)
+        
+        self.dropout = nn.Dropout(drop_prob)
+      
+    
+    def forward(self, x, hidden=None):
+        char_encoded, _ = self.bilstmencoder(x, hidden)
+        return char_encoded
+    
+    def init_hidden(self, batch_size):
+        ''' Initializes hidden state '''
+        # Create two new tensors with sizes n_layers x batch_size x n_hidden,
+        # initialized to zero, for hidden state and cell state of LSTM
+        weight = next(self.parameters()).data
+        
+        hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(),
+                  weight.new(self.n_layers, batch_size, self.n_hidden).zero_())
+        
+        return hidden
+
+
+
 def argmax(vec):
     # return the argmax as a python int
     _, idx = torch.max(vec, 1)
