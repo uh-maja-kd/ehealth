@@ -16,6 +16,34 @@ class Node:
         self.children = []
         self.dep = "NONE"
 
+class EmbeddingComponents:
+    def __init__(self, wv):
+        self.wv = wv
+        self.vocab = wv.vocab
+
+    @property
+    def word_vector_size(self):
+        return len(self.wv.vectors[0])
+
+    def map_word(self, word: str):
+        tokens = ['<padding>', '<unseen>', '<notlatin>', '<unit>', '<number>']
+
+        if word in tokens:
+            return word
+        if re.findall(r"[0-9]", word):
+            return "<number>"
+        if re.fullmatch(units,word):
+            return "<unit>"
+        if re.fullmatch(currencies, word):
+            return "<currency>"
+        if len(re.findall(latin_chars, word)) != len(word):
+            return "<notlatin>"
+        return word
+
+    def get_word_index(self, word):
+        word = self.map_word(word)
+        return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
+
 class RelationsDependencyParseActionsDataset(Dataset):
 
     def __init__(self, collection: Collection):
@@ -269,34 +297,10 @@ class RelationsDependencyParseActionsDataset(Dataset):
         print(count)
         return count.min()/count
 
-class RelationsDatasetEmbedding(RelationsDependencyParseActionsDataset):
+class RelationsEmbeddingDataset(RelationsDependencyParseActionsDataset, EmbeddingComponents):
     def __init__(self, collection: Collection, wv):
-        super().__init__(collection)
-        self.wv = wv
-        self.vocab = wv.vocab
-
-    @property
-    def word_vector_size(self):
-        return len(self.wv.vectors[0])
-
-    def map_word(self, word: str):
-        tokens = ['<padding>', '<unseen>', '<notlatin>', '<unit>', '<number>']
-
-        if word in tokens:
-            return word
-        if re.findall(r"[0-9]", word):
-            return "<number>"
-        if re.fullmatch(units,word):
-            return "<unit>"
-        if re.fullmatch(currencies, word):
-            return "<currency>"
-        if len(re.findall(latin_chars, word)) != len(word):
-            return "<notlatin>"
-        return word
-
-    def get_word_index(self, word):
-        word = self.map_word(word)
-        return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
+        RelationsDependencyParseActionsDataset.__init__(self, collection)
+        EmbeddingComponents.__init__(self, wv)
 
     def encode_word_sequence(self, words):
         return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
@@ -338,34 +342,6 @@ class SimpleWordIndexDataset(Dataset):
                 self._encode_word_sequence(sentence_words),
                 self._encode_label_sequence(sentence_labels)
         )
-
-class EmbeddingComponents:
-    def __init__(self, wv):
-        self.wv = wv
-        self.vocab = wv.vocab
-
-    @property
-    def word_vector_size(self):
-        return len(self.wv.vectors[0])
-
-    def map_word(self, word: str):
-        tokens = ['<padding>', '<unseen>', '<notlatin>', '<unit>', '<number>']
-
-        if word in tokens:
-            return word
-        if re.findall(r"[0-9]", word):
-            return "<number>"
-        if re.fullmatch(units,word):
-            return "<unit>"
-        if re.fullmatch(currencies, word):
-            return "<currency>"
-        if len(re.findall(latin_chars, word)) != len(word):
-            return "<notlatin>"
-        return word
-
-    def get_word_index(self, word):
-        word = self.map_word(word)
-        return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
 
 class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponents):
     def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
