@@ -11,7 +11,7 @@ from python_json_config import ConfigBuilder
 from kdtools.datasets import (
     SimpleWordIndexDataset,
     RelationsDependencyParseActionsDataset,
-    RelationsDatasetEmbedding,
+    RelationsEmbeddingDataset,
     SentenceEmbeddingDataset
 )
 from kdtools.models import (
@@ -26,7 +26,7 @@ from gensim.models.word2vec import Word2VecKeyedVectors
 from numpy.random import random
 
 
-class UHMajaModel(Algorithm):
+class BiLSTMCRF_RelationsParsing(Algorithm):
     def __init__(self):
         self.models_taskA = {}
         self.model_taskB = None
@@ -40,13 +40,13 @@ class UHMajaModel(Algorithm):
 
     def run_taskA(self, collection: Collection):
         print("Running taskA")
+
         idx = 0
-        wiki_wv_path = 'C:/Users/ale/Desktop/5to/Tesis/ehealth/trained/embeddings/wiki_classic/wiki_classic.wv'
-        wv = Word2VecKeyedVectors.load(wiki_wv_path)
         for entity_type, model in self.models_taskA.items():
             print(entity_type)
+            dataset = SentenceEmbeddingDataset(collection, model.wv)
+
             model.eval()
-            dataset = SentenceEmbeddingDataset(collection, wv)
             for spans, sentence, X in tqdm(dataset.evaluation):
                 X = X.view(1,-1)
                 output = [dataset.labels[idx] for idx in model(X)[1]]
@@ -55,11 +55,10 @@ class UHMajaModel(Algorithm):
                     idx += 1
                     sentence.keyphrases.append(Keyphrase(sentence, entity_type, idx, kp_spans))
 
-
     def run_taskB(self, collection: Collection):
         print("Running taskB")
         model = self.model_taskB
-        dataset = RelationsDatasetEmbedding(collection, model.wv)
+        dataset = RelationsEmbeddingDataset(collection, model.wv)
 
         model.eval()
         it = 0
@@ -121,11 +120,14 @@ class UHMajaModel(Algorithm):
     def train_taskA(self, collection, model_config, train_config, entity_type):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
 
-        wiki_wv_path = 'C:/Users/ale/Desktop/5to/Tesis/ehealth/trained/embeddings/wiki_classic/wiki_classic.wv'
-        wv = Word2VecKeyedVectors.load(wiki_wv_path)
+        wv = Word2VecKeyedVectors.load(model_config.embedding_path)
         dataset = SentenceEmbeddingDataset(collection, wv, lambda x: x.label == entity_type)
 
-        model = EmbeddingBiLSTM_CRF(6, 50, wv)
+        model = EmbeddingBiLSTM_CRF(
+            len(dataset.labels),
+            model_config.hidden_dim,
+            wv
+        )
 
         optimizer = optim.SGD(
             model.parameters(),
@@ -161,7 +163,8 @@ class UHMajaModel(Algorithm):
 
     def train_taskB(self, collection: Collection, model_config, train_config):
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
-        dataset = RelationsDatasetEmbedding(collection, wv)
+        dataset = RelationsEmbeddingDataset(collection, wv)
+
         model = BiLSTMDoubleDenseOracleParser(
             dataset.word_vector_size,
             model_config.lstm_hidden_size,
@@ -171,9 +174,11 @@ class UHMajaModel(Algorithm):
             len(dataset.actions),
             len(dataset.relations)
         )
+
         optimizer = optim.Adam(
             model.parameters()
         )
+
         criterion_act = CrossEntropyLoss(weight = dataset.get_actions_weights())
         criterion_rel = CrossEntropyLoss(weight = dataset.get_relations_weights())
 

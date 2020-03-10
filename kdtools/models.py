@@ -204,6 +204,7 @@ class EmbeddingAttentionBiLSTM_CRF(nn.Module):
     def __init__(self, tagset_size, hidden_dim, no_heads, wv):
         super().__init__()
         embed_size = len(wv.vectors[0])
+        self.wv = wv
         self.embedding = PretrainedEmbedding(wv)
         self.attention = MultiheadAttention(embed_size, no_heads)
         self.bislstmcrf = BiLSTM_CRF(embed_size, tagset_size, hidden_dim)
