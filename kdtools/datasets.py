@@ -1,7 +1,8 @@
 from numpy import argmax
-from scripts.utils import Collection, Sentence
+from scripts.utils import Collection, Sentence, Relation
 import torch
 from torch.utils.data import DataLoader, Dataset
+from torch.nn.functional import one_hot
 from tqdm import tqdm
 from operator import add
 from functools import reduce
@@ -350,3 +351,76 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponents):
 
     def _encode_word_sequence(self, words):
         return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+class EntitiesPairsDataset(Dataset, EmbeddingComponents):
+
+    def __init__(self, collection: Collection, wv):
+        EmbeddingComponents.__init__(self, wv)
+
+        self.collection = collection
+        self.dataxsentence = self._get_data(collection)
+        self.relations_data = reduce(add, self.dataxsentence)
+
+        self.relations = [
+            "subject",
+            "target",
+            "in-place",
+            "in-time",
+            "in-context",
+            "arg",
+            "domain",
+            "has-property",
+            "part-of",
+            "is-a",
+            "same-as",
+            "causes",
+            "entails"
+        ]
+        self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
+
+    def _get_data(self, collection: Collection):
+        return [self._get_sentence_data(sentence) for sentence in tqdm(collection.sentences)]
+
+    def _get_sentence_data(self, sentence: Sentence):
+        data = []
+        for relation in sentence.relations:
+            try:
+                data.append(self._get_relation_data(relation))
+            except Exception as e:
+                pass
+                # print(e)
+                # print(sentence)
+        return data
+
+    def _get_relation_data(self, relation: Relation):
+        sentence = relation.sentence
+
+        sentence_spans = get_spans(sentence.text)
+        sentence_words = [sentence.text[start:end] for (start, end) in sentence_spans]
+
+        origin_spans = sentence.find_keyphrase(relation.origin).spans
+        origin_idxs = [sentence_spans.index(span) for span in origin_spans]
+
+        destination_spans = sentence.find_keyphrase(relation.destination).spans
+        destination_idxs = [sentence_spans.index(span) for span in destination_spans]
+
+        return (sentence_words, origin_idxs, destination_idxs, relation.label)
+
+    def _encode_word_sequence(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+    def __len__(self):
+        return len(self.relations_data)
+
+    def __getitem__(self, idx):
+        sentence, origin, destination, label = self.relations_data[idx]
+
+        mask_origin = torch.sum(one_hot(torch.tensor(origin), len(sentence)), dim = 0)
+        mask_destination = torch.sum(one_hot(torch.tensor(destination), len(sentence)), dim = 0)
+
+        return (
+            self._encode_word_sequence(sentence),
+            mask_origin,
+            mask_destination,
+            torch.LongTensor([self.relation2index[label]])
+        )

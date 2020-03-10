@@ -5,7 +5,7 @@ import spacy
 
 def get_spans(sentence: str):
     spans, begun, start = [], False, None
-    punct = '.,;:()-""'
+    punct = '.,;:()""'
     for i, c in enumerate(sentence):
         if not begun and c not in " " + punct:
             begun = True
