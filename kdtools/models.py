@@ -291,3 +291,39 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
         relation_out = F.softmax(self.relation_dense(encoded), 1)
 
         return [action_out, relation_out]
+
+class BiLSTMSelectiveRelationClassifier(nn.Module):
+    def __init__(self, sent_hidden_size, entities_hidden_size, dense_hidden_size, no_relations, wv, dropout_ratio = 0.2):
+        super().__init__()
+
+        embed_size = len(wv.vectors[0])
+        self.wv = wv
+        self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
+
+        self.sent_encoder = BiLSTMEncoder(embed_size, sent_hidden_size, return_sequence=True, batch_first=True)
+
+        self.origin_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size)
+        self.destination_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size)
+
+        self.origin_dense_hidden = nn.Linear(2*entities_hidden_size, dense_hidden_size)
+        self.destination_dense_hidden = nn.Linear(2 * entities_hidden_size, dense_hidden_size)
+
+        self.origin_dropout = nn.Dropout(p=dropout_ratio)
+        self.destination_dropout = nn.Dropout(p=dropout_ratio)
+
+        self.dense_output = nn.Linear(2*dense_hidden_size, no_relations)
+
+    def forward(self, X, mask_origin, mask_destination):
+        X = self.embedding(X)
+        sentence_encoded, _ = self.sent_encoder(X)
+
+        origin_encoded, _ = self.origin_encoder(sentence_encoded*mask_origin)
+        destination_encoded, _ = self.destination_encoder(sentence_encoded * mask_destination)
+
+        origin_encoded = torch.tanh(self.origin_dropout(self.origin_dense_hidden(origin_encoded)))
+        destination_encoded = torch.tanh(self.destination_dropout(self.destination_dense_hidden(destination_encoded)))
+
+        return F.softmax(self.dense_output(torch.cat((origin_encoded, destination_encoded), dim = 1)), dim = 1)
+
+
+
