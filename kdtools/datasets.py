@@ -7,9 +7,7 @@ from tqdm import tqdm
 from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
-from kdtools.utils.preproc import get_spans, get_spacy_vector
-from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CURRENCY as currencies
-import re
+from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent
 
 class Node:
     def __init__(self):
@@ -17,37 +15,12 @@ class Node:
         self.children = []
         self.dep = "NONE"
 
-class EmbeddingComponents:
-    def __init__(self, wv):
-        self.wv = wv
-        self.vocab = wv.vocab
-
-    @property
-    def word_vector_size(self):
-        return len(self.wv.vectors[0])
-
-    def map_word(self, word: str):
-        tokens = ['<padding>', '<unseen>', '<notlatin>', '<unit>', '<number>']
-
-        if word in tokens:
-            return word
-        if re.findall(r"[0-9]", word):
-            return "<number>"
-        if re.fullmatch(units,word):
-            return "<unit>"
-        if re.fullmatch(currencies, word):
-            return "<currency>"
-        if len(re.findall(latin_chars, word)) != len(word):
-            return "<notlatin>"
-        return word
-
-    def get_word_index(self, word):
-        word = self.map_word(word)
-        return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
-
-class RelationsDependencyParseActionsDataset(Dataset):
+class RelationsDependencyParseActionsDataset(Dataset, TokenizerComponent, SpacyVectorsComponent):
 
     def __init__(self, collection: Collection):
+        TokenizerComponent.__init__(self)
+        SpacyVectorsComponent.__init__(self)
+
         self.actions = ["IGNORE", "LEFT", "RIGHT", "REDUCE", "SHIFT"]
         self.relations = [
             "subject",
@@ -81,10 +54,6 @@ class RelationsDependencyParseActionsDataset(Dataset):
         self.flatdata = reduce(add, self.dataxsentence)
 
         self.sentences = collection.sentences
-
-    @property
-    def word_vector_size(self):
-        return len(get_spacy_vector("hola"))
 
     def _can_do_ignore(self, state, tree):
         _,t,_,_ = state
@@ -149,7 +118,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         o.append(j)
 
     def _build_tree(self, sentence: Sentence):
-        spans = get_spans(sentence.text)
+        spans = self.get_spans(sentence.text)
         id2pos = {kp.id: spans.index(kp.spans[0]) + 1 for kp in sentence.keyphrases}
         sent_len = len(spans)
 
@@ -205,7 +174,6 @@ class RelationsDependencyParseActionsDataset(Dataset):
                 return False, actions
         return True, actions
 
-
     def _get_data(self, collection: Collection):
         data = []
         for sentence in tqdm(collection.sentences):
@@ -224,7 +192,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         samples = []
         ok, actions = self._get_actions(sentence)
         if ok:
-            sent_size = len(get_spans(sentence.text))
+            sent_size = len(self.get_spans(sentence.text))
             if actions:
                 state = ([],[i for i in range(sent_size,0,-1)],[0]*(sent_size+1), ["NONE"]*(sent_size+1))
                 for name, dep in actions:
@@ -245,7 +213,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return (o.copy(), t.copy(), h.copy(), d.copy())
 
     def encode_word_sequence(self, words):
-        return (torch.tensor([get_spacy_vector(word) for word in words]),)
+        return (torch.tensor([self.get_spacy_vector(word) for word in words]),)
 
     def __len__(self):
         return len(self.flatdata)
@@ -254,7 +222,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         inp, out = self.flatdata[index]
         state, sentence = inp
         action, rel = out
-        words = [sentence.text[start:end] for (start, end) in get_spans(sentence.text)]
+        words = [sentence.text[start:end] for (start, end) in self.get_spans(sentence.text)]
         o,t,h,d = state
 
         return (
@@ -268,7 +236,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
     def evaluation(self):
         ret = []
         for sentence in self.sentences:
-            spans = get_spans(sentence.text)
+            spans = self.get_spans(sentence.text)
             sent_size = len(spans)
             ret.append(
                 (
@@ -298,18 +266,21 @@ class RelationsDependencyParseActionsDataset(Dataset):
         print(count)
         return count.min()/count
 
-class RelationsEmbeddingDataset(RelationsDependencyParseActionsDataset, EmbeddingComponents):
+class RelationsEmbeddingDataset(RelationsDependencyParseActionsDataset, EmbeddingComponent):
     def __init__(self, collection: Collection, wv):
         RelationsDependencyParseActionsDataset.__init__(self, collection)
-        EmbeddingComponents.__init__(self, wv)
+        EmbeddingComponent.__init__(self, wv)
 
     def encode_word_sequence(self, words):
         return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
 
-class SimpleWordIndexDataset(Dataset):
+class SimpleWordIndexDataset(Dataset, TokenizerComponent):
+
     def __init__(self, collection: Collection, entity_criteria = lambda x: x):
+        TokenizerComponent.__init__(self)
+
         self.sentences = collection.sentences
-        self.words_spans = [get_spans(sentence.text) for sentence in self.sentences]
+        self.words_spans = [self.get_spans(sentence.text) for sentence in self.sentences]
         self.words = [[sentence.text[start:end] for (start,end) in spans] for (sentence, spans) in zip(self.sentences, self.words_spans)]
         self.entities_spans = [[k.spans for k in filter(entity_criteria, s.keyphrases)] for s in self.sentences]
 
@@ -344,18 +315,18 @@ class SimpleWordIndexDataset(Dataset):
                 self._encode_label_sequence(sentence_labels)
         )
 
-class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponents):
+class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponent):
     def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
         SimpleWordIndexDataset.__init__(self, collection, entity_criteria)
-        EmbeddingComponents.__init__(self, wv)
+        EmbeddingComponent.__init__(self, wv)
 
     def _encode_word_sequence(self, words):
         return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
 
-class EntitiesPairsDataset(Dataset, EmbeddingComponents):
+class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
 
     def __init__(self, collection: Collection, wv):
-        EmbeddingComponents.__init__(self, wv)
+        EmbeddingComponent.__init__(self, wv)
 
         self.collection = collection
         self.dataxsentence = self._get_data(collection)
@@ -395,7 +366,7 @@ class EntitiesPairsDataset(Dataset, EmbeddingComponents):
     def _get_relation_data(self, relation: Relation):
         sentence = relation.sentence
 
-        sentence_spans = get_spans(sentence.text)
+        sentence_spans = self.get_spans(sentence.text)
         sentence_words = [sentence.text[start:end] for (start, end) in sentence_spans]
 
         origin_spans = sentence.find_keyphrase(relation.origin).spans
