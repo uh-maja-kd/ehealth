@@ -245,7 +245,7 @@ class RelationsDependencyParseActionsDataset(Dataset):
         return (o.copy(), t.copy(), h.copy(), d.copy())
 
     def encode_word_sequence(self, words):
-        return torch.tensor([get_spacy_vector(word) for word in words])
+        return (torch.tensor([get_spacy_vector(word) for word in words]),)
 
     def __len__(self):
         return len(self.flatdata)
@@ -258,8 +258,8 @@ class RelationsDependencyParseActionsDataset(Dataset):
         o,t,h,d = state
 
         return (
-                self.encode_word_sequence(["<padding>"] + [words[i - 1] for i in o]),
-                self.encode_word_sequence([words[i - 1] for i in t]),
+                *self.encode_word_sequence(["<padding>"] + [words[i - 1] for i in o]),
+                *self.encode_word_sequence([words[i - 1] for i in t]),
                 torch.LongTensor([self.action2index[action]]),
                 torch.LongTensor([self.relation2index[rel]]) if rel != "none" else None
         )
@@ -304,7 +304,7 @@ class RelationsEmbeddingDataset(RelationsDependencyParseActionsDataset, Embeddin
         EmbeddingComponents.__init__(self, wv)
 
     def encode_word_sequence(self, words):
-        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+        return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
 
 class SimpleWordIndexDataset(Dataset):
     def __init__(self, collection: Collection, entity_criteria = lambda x: x):
@@ -328,7 +328,7 @@ class SimpleWordIndexDataset(Dataset):
         return len(self.sentences)
 
     def _encode_word_sequence(self, words):
-        return torch.tensor([get_spacy_vector(word) for word in words])
+        return (torch.tensor([get_spacy_vector(word) for word in words]),)
 
     def _encode_label_sequence(self, labels: list):
         return torch.tensor([self.label2index[label] for label in labels], dtype = torch.long)
@@ -340,7 +340,7 @@ class SimpleWordIndexDataset(Dataset):
         sentence_labels = BMEWOV.encode(sentence_words_spans, sentence_entities_spans)
 
         return (
-                self._encode_word_sequence(sentence_words),
+                *self._encode_word_sequence(sentence_words),
                 self._encode_label_sequence(sentence_labels)
         )
 
@@ -350,7 +350,7 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponents):
         EmbeddingComponents.__init__(self, wv)
 
     def _encode_word_sequence(self, words):
-        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+        return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
 
 class EntitiesPairsDataset(Dataset, EmbeddingComponents):
 
@@ -407,7 +407,7 @@ class EntitiesPairsDataset(Dataset, EmbeddingComponents):
         return (sentence_words, origin_idxs, destination_idxs, relation.label)
 
     def _encode_word_sequence(self, words):
-        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+        return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
 
     def __len__(self):
         return len(self.relations_data)
@@ -419,7 +419,7 @@ class EntitiesPairsDataset(Dataset, EmbeddingComponents):
         mask_destination = torch.sum(one_hot(torch.tensor(destination), len(sentence)), dim = 0)
 
         return (
-            self._encode_word_sequence(sentence),
+            *self._encode_word_sequence(sentence),
             mask_origin,
             mask_destination,
             torch.LongTensor([self.relation2index[label]])

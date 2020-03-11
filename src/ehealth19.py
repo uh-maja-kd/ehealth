@@ -69,8 +69,8 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
                 o, t, h, d = state
 
                 X = (
-                    dataset.encode_word_sequence(["<padding>"]+[words[i - 1] for i in o]).view(1,-1),
-                    dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1)
+                    *dataset.encode_word_sequence(["<padding>"]+[words[i - 1] for i in o]).view(1,-1),
+                    *dataset.encode_word_sequence([words[i - 1] for i in t]).view(1,-1)
                 )
                 output_act, output_rel = model(X)
                 action = dataset.actions[torch.argmax(output_act)]
