@@ -325,8 +325,6 @@ class BiLSTMSelectiveRelationClassifier(nn.Module):
 
         return F.softmax(self.dense_output(torch.cat((origin_encoded, destination_encoded), dim = 1)), dim = 1)
 
-
-
 class ChildSumTreeLSTM(nn.Module):
     def __init__(self, in_dim, mem_dim):
         super(ChildSumTreeLSTM, self).__init__()
