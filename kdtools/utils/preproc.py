@@ -1,6 +1,7 @@
 import spacy
 from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CURRENCY as currencies
 import re
+from kdtools.utils.model_helpers import Tree
 
 class SpacyComponent:
     def __init__(self):
@@ -25,8 +26,16 @@ class SpacyVectorsComponent(SpacyComponent):
 
 class DependencyTreeComponent(SpacyComponent):
 
-    def get_dependency_tree(self, words):
-        pass
+    def get_dependency_tree(self, sentence: str):
+        tokens = list(self.nlp(sentence))
+        nodes = [Tree(token.i, token.text+" "+token.dep_) for token in tokens]
+
+        for node in nodes:
+            for child in tokens[node.idx].children:
+                node.add_child(nodes[child.i])
+
+        root = list(filter(lambda x: x.dep_ == "ROOT", tokens))[0]
+        return nodes[root.i]
 
 class EmbeddingComponent:
     def __init__(self, wv):
