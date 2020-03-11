@@ -2,26 +2,18 @@ import spacy
 from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CURRENCY as currencies
 import re
 
-class TokenizerComponent:
-
-    def get_spans(self, sentence: str):
-        spans, begun, start = [], False, None
-        punct = '.,;:()""'
-        for i, c in enumerate(sentence):
-            if not begun and c not in " " + punct:
-                begun = True
-                start = i
-            if begun and c in " " + punct:
-                begun = False
-                spans.append((start, i))
-            if c in punct:
-                spans.append((i, i+1))
-
-        return spans[:-1]
-
-class SpacyVectorsComponent:
+class SpacyComponent:
     def __init__(self):
         self.nlp = spacy.load("es_core_news_md")
+
+class TokenizerComponent(SpacyComponent):
+    def __init__(self):
+        SpacyComponent.__init__(self)
+
+    def get_spans(self, sentence: str):
+        return [(token.idx, token.idx+len(token)) for token in self.nlp.tokenizer(sentence)]
+
+class SpacyVectorsComponent(SpacyComponent):
 
     @property
     def word_vector_size(self):
@@ -30,6 +22,11 @@ class SpacyVectorsComponent:
     def get_spacy_vector(self, word: str):
         return self.nlp.vocab.get_vector(word)
 
+
+class DependencyTreeComponent(SpacyComponent):
+
+    def get_dependency_tree(self, words):
+        pass
 
 class EmbeddingComponent:
     def __init__(self, wv):
