@@ -6,34 +6,60 @@ from torch.nn.parameter import Parameter
 
 import kdtools
 # from kdtools.layers import BiLSTMEncoder
+from collections import OrderedDict
 
-class CharRNN(nn.Module):
-    
-    def __init__(self, input_size, hidden_size, n_layers=1, drop_prob=0.5):
-        super().__init__()
-        self.drop_prob = drop_prob
-        self.n_layers = n_layers
-        self.hidden_size = hidden_size
-        
-        self.bilstmencoder = BiLSTMEncoder(input_size, hidden_size, batch_first=True)
-        
-        self.dropout = nn.Dropout(drop_prob)
-      
-    
-    def forward(self, x, hidden=None):
-        char_encoded, _ = self.bilstmencoder(x, hidden)
-        return char_encoded
-    
-    def init_hidden(self, batch_size):
-        ''' Initializes hidden state '''
-        # Create two new tensors with sizes n_layers x batch_size x n_hidden,
-        # initialized to zero, for hidden state and cell state of LSTM
-        weight = next(self.parameters()).data
-        
-        hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(),
-                  weight.new(self.n_layers, batch_size, self.n_hidden).zero_())
-        
-        return hidden
+class CharCNN(nn.Module):
+    """
+    CNN layers for characters
+    """
+    def __init__(self, num_layers, in_channels, out_channels, hidden_channels=None, activation='elu'):
+        super(CharCNN, self).__init__()
+        assert activation in ['elu', 'tanh']
+        if activation == 'elu':
+            ACT = nn.ELU
+        else:
+            ACT = nn.Tanh
+        layers = list()
+        for i in range(num_layers - 1):
+            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)))
+            layers.append(('act{}'.format(i), ACT()))
+            in_channels = hidden_channels
+        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)))
+        layers.append(('act_top', ACT()))
+        self.act = ACT
+        self.net = nn.Sequential(OrderedDict(layers))
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for layer in self.net:
+            if isinstance(layer, nn.Conv1d):
+                nn.init.xavier_uniform_(layer.weight)
+                nn.init.constant_(layer.bias, 0.)
+            else:
+                assert isinstance(layer, self.act)
+
+    def forward(self, char):
+        """
+
+        Args:
+            char: Tensor
+                the input tensor of character [batch, sent_length, char_length, in_channels]
+
+        Returns: Tensor
+            output character encoding with shape [batch, sent_length, in_channels]
+
+        """
+        # [batch, sent_length, char_length, in_channels]
+        char_size = char.size()
+        # first transform to [batch * sent_length, char_length, in_channels]
+        # then transpose to [batch * sent_length, in_channels, char_length]
+        char = char.view(-1, char_size[2], char_size[3]).transpose(1, 2)
+        # [batch * sent_length, out_channels, char_length]
+        char = self.net(char).max(dim=2)[0]
+        # [batch, sent_length, out_channels]
+        return char.view(char_size[0], char_size[1], -1)
+
 
 
 
