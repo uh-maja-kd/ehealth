@@ -22,7 +22,7 @@ def log_sum_exp(vec):
 class BiLSTMEncoder(nn.Module):
     def __init__(self, input_size, hidden_size, return_sequence = False, **kargs):
         super().__init__()
-        self.layer = nn.LSTM(input_size, hidden_size, bidirectional=True)
+        self.layer = nn.LSTM(input_size, hidden_size, bidirectional=True, **kargs)
 
         self.hidden_size = 2 * self.layer.hidden_size
 
@@ -31,18 +31,17 @@ class BiLSTMEncoder(nn.Module):
     def forward(self, input, hx=None):
         output, hidden = self.layer(input, hx)
 
-        hidden_size = self.layer.hidden_size
-
-        left2right = output[:, :, :hidden_size]
-        right2left = output[:, :, hidden_size:].flip([1])
-
-        output = torch.cat((left2right, right2left), -1)
-
         if not self.return_sequence:
+            hidden_size = self.layer.hidden_size
+
             if self.layer.batch_first:
-                output = output[-1,:,:]
+                left2right = output[:, -1, :hidden_size]
+                right2left = output[:, 0, hidden_size:]
             else:
-                output = output[:,-1,:]
+                left2right = output[-1, :, :hidden_size]
+                right2left = output[0, :, hidden_size:]
+
+            output = torch.cat((left2right, right2left), 1)
 
         return output, hidden
 
@@ -302,8 +301,8 @@ class BiLSTMSelectiveRelationClassifier(nn.Module):
 
         self.sent_encoder = BiLSTMEncoder(embed_size, sent_hidden_size, return_sequence=True, batch_first=True)
 
-        self.origin_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size)
-        self.destination_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size)
+        self.origin_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size, batch_first = True)
+        self.destination_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size, batch_first = True)
 
         self.origin_dense_hidden = nn.Linear(2*entities_hidden_size, dense_hidden_size)
         self.destination_dense_hidden = nn.Linear(2 * entities_hidden_size, dense_hidden_size)
@@ -317,12 +316,11 @@ class BiLSTMSelectiveRelationClassifier(nn.Module):
         X = self.embedding(X)
         sentence_encoded, _ = self.sent_encoder(X)
 
-        origin_encoded, _ = self.origin_encoder(sentence_encoded*mask_origin)
+        origin_encoded, _ = self.origin_encoder(sentence_encoded * mask_origin)
         destination_encoded, _ = self.destination_encoder(sentence_encoded * mask_destination)
 
         origin_encoded = torch.tanh(self.origin_dropout(self.origin_dense_hidden(origin_encoded)))
         destination_encoded = torch.tanh(self.destination_dropout(self.destination_dense_hidden(destination_encoded)))
-
         return F.softmax(self.dense_output(torch.cat((origin_encoded, destination_encoded), dim = 1)), dim = 1)
 
 class ChildSumTreeLSTM(nn.Module):
@@ -365,3 +363,192 @@ class ChildSumTreeLSTM(nn.Module):
 
         tree.state = self.node_forward(inputs[tree.idx], child_c, child_h)
         return tree.state
+
+class CRF:
+    def __init__(self, input_dim, tagset_size):
+        super().__init__()
+        self.input_dim = input_dim
+        self.tagset_size = tagset_size+2
+        self.START_TAG = tagset_size
+        self.STOP_TAG = tagset_size+1
+
+        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+
+        # Matrix of transition parameters.  Entry i,j is the score of
+        # transitioning *to* i *from* j.
+        self.transitions = nn.Parameter(
+            torch.randn(self.tagset_size, self.tagset_size))
+
+        # These two statements enforce the constraint that we never transfer
+        # to the start tag and we never transfer from the stop tag
+        self.transitions.data[self.START_TAG, :] = -10000
+        self.transitions.data[:, self.STOP_TAG] = -10000
+
+    def _forward_alg(self, feats):
+        # Do the forward algorithm to compute the partition function
+        init_alphas = torch.full((1, self.tagset_size), -10000.)
+        # START_TAG has all of the score.
+        init_alphas[0][self.START_TAG] = 0.
+
+        # Wrap in a variable so that we will get automatic backprop
+        forward_var = init_alphas
+
+        # Iterate through the sentence
+        for feat in feats:
+            alphas_t = []  # The forward tensors at this timestep
+            for next_tag in range(self.tagset_size):
+                # broadcast the emission score: it is the same regardless of
+                # the previous tag
+                emit_score = feat[next_tag].view(
+                    1, -1).expand(1, self.tagset_size)
+                # the ith entry of trans_score is the score of transitioning to
+                # next_tag from i
+                trans_score = self.transitions[next_tag].view(1, -1)
+                # The ith entry of next_tag_var is the value for the
+                # edge (i -> next_tag) before we do log-sum-exp
+                next_tag_var = forward_var + trans_score + emit_score
+                # The forward variable for this tag is log-sum-exp of all the
+                # scores.
+                alphas_t.append(log_sum_exp(next_tag_var).view(1))
+            forward_var = torch.cat(alphas_t).view(1, -1)
+        terminal_var = forward_var + self.transitions[self.STOP_TAG]
+        alpha = log_sum_exp(terminal_var)
+        return alpha
+
+    def _get_features(self, sentence):
+        sentence = sentence.view(len(sentence), self.input_dim)
+        sentence = self.hidden2tag(sentence)
+        return sentence
+
+    def _score_sentence(self, feats, tags):
+        # Gives the score of a provided tag sequence
+        score = torch.zeros(1)
+        tags = torch.cat([torch.tensor([self.START_TAG], dtype=torch.long), tags])
+        for i, feat in enumerate(feats):
+            score = score + \
+                self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
+        score = score + self.transitions[self.STOP_TAG, tags[-1]]
+        return score
+
+    def _viterbi_decode(self, feats):
+        backpointers = []
+
+        # Initialize the viterbi variables in log space
+        init_vvars = torch.full((1, self.tagset_size), -10000.)
+        init_vvars[0][self.START_TAG] = 0
+
+        # forward_var at step i holds the viterbi variables for step i-1
+        forward_var = init_vvars
+        for feat in feats:
+            bptrs_t = []  # holds the backpointers for this step
+            viterbivars_t = []  # holds the viterbi variables for this step
+
+            for next_tag in range(self.tagset_size):
+                # next_tag_var[i] holds the viterbi variable for tag i at the
+                # previous step, plus the score of transitioning
+                # from tag i to next_tag.
+                # We don't include the emission scores here because the max
+                # does not depend on them (we add them in below)
+                next_tag_var = forward_var + self.transitions[next_tag]
+                best_tag_id = argmax(next_tag_var)
+                bptrs_t.append(best_tag_id)
+                viterbivars_t.append(next_tag_var[0][best_tag_id].view(1))
+            # Now add in the emission scores, and assign forward_var to the set
+            # of viterbi variables we just computed
+            forward_var = (torch.cat(viterbivars_t) + feat).view(1, -1)
+            backpointers.append(bptrs_t)
+
+        # Transition to STOP_TAG
+        terminal_var = forward_var + self.transitions[self.STOP_TAG]
+        best_tag_id = argmax(terminal_var)
+        path_score = terminal_var[0][best_tag_id]
+
+        # Follow the back pointers to decode the best path.
+        best_path = [best_tag_id]
+        for bptrs_t in reversed(backpointers):
+            best_tag_id = bptrs_t[best_tag_id]
+            best_path.append(best_tag_id)
+        # Pop off the start tag (we dont want to return that to the caller)
+        start = best_path.pop()
+        assert start == self.START_TAG  # Sanity check
+        best_path.reverse()
+        return path_score, best_path
+
+    def neg_log_likelihood(self, sentence, tags):
+        feats = self._get_features(sentence)
+        forward_score = self._forward_alg(feats)
+        gold_score = self._score_sentence(feats, tags)
+        return forward_score - gold_score
+
+    def forward(self, sentence):  # dont confuse this with _forward_alg above.
+        # Get the emission scores from the BiLSTM
+        lstm_feats = self._get_features(sentence)
+
+        # Find the best path, given the features.
+        score, tag_seq = self._viterbi_decode(lstm_feats)
+        return score, tag_seq
+
+class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
+
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        bert_size,
+        no_postags,
+        postag_size,
+        no_positions,
+        position_size,
+        charencoding_size,
+        tree_lstm_hidden_size,
+        bilstm_hidden_size,
+        local_cnn_channels,
+        local_cnn_window_size,
+        global_cnn_channels,
+        global_cnn_window_size,
+        dropout_chance,
+        no_entity_tags,
+        no_relations
+        ):
+
+        #INPUT PROCESSING
+
+        #Word Embedding layer
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        #Char Embedding layer
+        # self.char_embedding = CharCNN()
+
+        #POS-tag Embedding layer
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+
+        #Position Embedding layer
+        self.position_embedding = nn.Embedding(no_positions, position_size)
+
+
+        #ENCODING (SHARED PARAMETERS)
+
+        word_rep_size = embedding_size + bert_size + postag_size + position_size + char_size
+
+        #Word-encoding BiLSTM
+        self.word_bilstm = BiLSTMEncoder(word_rep_size, bilstm_hidden_size, return_sequence=True)
+
+        #Word-encoding CNN
+        self.word_cnn = nn.Conv1d(word_rep_size, local_cnn_channels, local_cnn_window_size)
+
+        #DependencyTree-enconding TreeLSTM
+        self.tree_lstm = ChildSumTreeLSTM(word_rep_size, tree_lstm_hidden_size)
+
+        #Global CNN
+        self.sentence_cnn = nn.Conv1d(word_rep_size, global_cnn_channels, global_cnn_window_size)
+
+        #OUTPUT
+        self.dropout = nn.Dropout(dropout_chance)
+
+        sentence_features_size = 2 * (bilstm_hidden_size + local_cnn_channels + tree_lstm_hidden_size) + global_cnn_channels
+
+        #Entites
+        self.entities_crf_decoder = CRF(sentence_features_size, no_entity_tags)
+
+        #Relations
+        self.relations_decoder = nn.Linear(sentence_features, no_relations)
