@@ -326,6 +326,7 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponent):
 class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
 
     def __init__(self, collection: Collection, wv):
+        TokenizerComponent.__init__(self)
         EmbeddingComponent.__init__(self, wv)
 
         self.collection = collection
