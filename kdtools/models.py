@@ -277,15 +277,19 @@ class EmbeddingBiLSTM_CRF(nn.Module):
         self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=4 * char_dim, activation=activation)
         self.bislstmcrf = BiLSTM_CRF(embed_size, tagset_size, hidden_dim)
 
-    def neg_log_likelihood(self, X, y):
-        X = self.embedding(X)
-        return self.bislstmcrf.neg_log_likelihood(X, y)
-
-    def forward(self, input_word, input_char):
+    def __build_input(self, input_word, input_char):
         word_embedding, char_embedding = self.embedding(input_word, input_char)
         char_embedding = self.char_cnn(char_embedding)
         
         encode = torch.cat([word_embedding, char_embedding], dim=2)
+        return encode
+        
+    def neg_log_likelihood(self, input_word, input_char, y):
+        encode = self.__build_input(input_word, input_char)
+        return self.bislstmcrf.neg_log_likelihood(encode, y)
+
+    def forward(self, input_word, input_char):
+        encode = self.__build_input(input_word, input_char)
 
         return self.bislstmcrf(encode)
 

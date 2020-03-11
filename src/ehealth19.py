@@ -237,7 +237,7 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
 if __name__ == "__main__":
     from pathlib import Path
 
-    algorithm = UHMajaModel()
+    algorithm = BiLSTMCRF_RelationsParsing()
 
     training = Collection().load(Path("data/training/scenario.txt"))
     algorithm.train(training)
