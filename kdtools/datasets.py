@@ -8,12 +8,26 @@ from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
 from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent
+from string import ascii_lowercase
 
 class Node:
     def __init__(self):
         self.parent = 0
         self.children = []
         self.dep = "NONE"
+
+class CharEmbeddingComponents:
+    def __init__(self):
+        self.vocab = ascii_lowercase
+        self.vocab.append('<pad>')
+        print(self.vocab)
+
+    def int2char(self):
+        return dict(enumerate(self.vocab))
+    
+    def char2int(self):
+        return {char: index for index,char in self.int2char().items()}
+
 
 class RelationsDependencyParseActionsDataset(Dataset, TokenizerComponent, SpacyVectorsComponent):
 
