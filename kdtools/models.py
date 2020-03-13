@@ -192,8 +192,8 @@ class BiLSTMDoubleDenseOracleParser(nn.Module):
 
         self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
 
-        self.bilstmencoder_sent = BiLSTMEncoder(input_size, lstm_hidden_size, batch_first=True)
-        self.bilstmencoder_stack = BiLSTMEncoder(input_size, lstm_hidden_size, batch_first=True)
+        self.bilstmencoder_sent = BiLSTM(input_size, lstm_hidden_size, batch_first=True)
+        self.bilstmencoder_stack = BiLSTM(input_size, lstm_hidden_size, batch_first=True)
 
         self.dropout_sent = nn.Dropout(p = dropout_ratio)
         self.dropout_stack = nn.Dropout(p = dropout_ratio)
@@ -234,10 +234,10 @@ class BiLSTMSelectiveRelationClassifier(nn.Module):
         self.wv = wv
         self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
 
-        self.sent_encoder = BiLSTMEncoder(embed_size, sent_hidden_size, return_sequence=True, batch_first=True)
+        self.sent_encoder = BiLSTM(embed_size, sent_hidden_size, return_sequence=True, batch_first=True)
 
-        self.origin_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size, batch_first = True)
-        self.destination_encoder = BiLSTMEncoder(2*sent_hidden_size, entities_hidden_size, batch_first = True)
+        self.origin_encoder = BiLSTM(2*sent_hidden_size, entities_hidden_size, batch_first = True)
+        self.destination_encoder = BiLSTM(2*sent_hidden_size, entities_hidden_size, batch_first = True)
 
         self.origin_dense_hidden = nn.Linear(2*entities_hidden_size, dense_hidden_size)
         self.destination_dense_hidden = nn.Linear(2 * entities_hidden_size, dense_hidden_size)
@@ -269,6 +269,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         postag_size,
         no_positions,
         position_size,
+        no_chars,
         charencoding_size,
         tree_lstm_hidden_size,
         bilstm_hidden_size,
@@ -277,9 +278,12 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         global_cnn_channels,
         global_cnn_window_size,
         dropout_chance,
+        no_entity_types,
         no_entity_tags,
         no_relations
         ):
+
+        super().__init__()
 
         #INPUT PROCESSING
 
@@ -298,40 +302,52 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
 
         #ENCODING (SHARED PARAMETERS)
 
-        word_rep_size = embedding_size + bert_size + postag_size + position_size + char_size
+        word_rep_size = embedding_size + bert_size + postag_size + position_size + charencoding_size
 
         #Word-encoding BiLSTM
-        self.word_bilstm = BiLSTMEncoder(word_rep_size, bilstm_hidden_size, return_sequence=True)
+        self.word_bilstm = BiLSTM(word_rep_size, bilstm_hidden_size//2, return_sequence=True)
 
         #Word-encoding CNN
-        self.word_cnn = nn.Conv1d(word_rep_size, local_cnn_channels, local_cnn_window_size)
+        self.word_cnn = nn.Conv1d(word_rep_size, local_cnn_channels, local_cnn_window_size, padding=1)
 
         #DependencyTree-enconding TreeLSTM
         self.tree_lstm = ChildSumTreeLSTM(word_rep_size, tree_lstm_hidden_size)
 
         #Global CNN
-        self.sentence_cnn = nn.Conv1d(word_rep_size, global_cnn_channels, global_cnn_window_size)
+        self.sentence_cnn = nn.Conv1d(word_rep_size, global_cnn_channels, global_cnn_window_size, padding=1)
 
         #OUTPUT
         self.dropout = nn.Dropout(dropout_chance)
 
         sentence_features_size = 2 * (bilstm_hidden_size + local_cnn_channels + tree_lstm_hidden_size) + global_cnn_channels
 
+        #Entity type
+        self.entity_type_decoder = nn.Linear(sentence_features_size, no_entity_types)
+
         #Entites
         self.entities_crf_decoder = CRF(sentence_features_size, no_entity_tags)
 
         #Relations
-        self.relations_decoder = nn.Linear(sentence_features, no_relations)
+        self.relations_decoder = nn.Linear(sentence_features_size, no_relations)
 
     def forward(self, X):
-        bert_embeddings, word_inputs, char_inputs, postag_inputs, position_inputs, trees, pointed_token_idx = X
+        # bert_embeddings, word_inputs, char_inputs, postag_inputs, position_inputs, trees, pointed_token_idx = X
+        bert_embeddings, word_inputs, char_embeddings, postag_inputs, position_inputs, trees, pointed_token_idx = X
         sent_len = len(trees)
 
         #obtaining embeddings vectors
         word_embeddings = self.word_embedding(word_inputs)
-        char_embeddings = self.char_embedding(char_inputs)
+        # char_embeddings = self.char_embedding(char_inputs)
         postag_embeddings = self.postag_embedding(postag_inputs)
         position_embeddings = self.position_embedding(position_inputs)
+
+        print(
+            "bert_embeddings: ", bert_embeddings.shape, "\n",
+            "word_embeddings: ", word_embeddings.shape, "\n",
+            "char_embeddings: ", char_embeddings.shape, "\n",
+            "postag_embeddings: ", postag_embeddings.shape, "\n",
+            "position_embeddings: ", position_embeddings.shape, "\n"
+        )
 
         inputs = torch.cat(
             (
@@ -342,11 +358,22 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
                 position_embeddings
             ), dim=-1)
 
+        print(
+            "inputs: ", inputs.shape, "\n"
+        )
+
         #encoding those inputs
-        local_bilstm_encoding = self.word_bilstm(inputs)
-        local_cnn_encoding = self.word_cnn(inputs)
-        local_deptree_encoding = torch.cat([self.tree_lstm(tree, inputs) for tree in trees], dim=-1)
-        global_cnn_encoding = self.sentence_cnn(inputs)
+        local_bilstm_encoding, _ = self.word_bilstm(inputs)
+        local_cnn_encoding = self.word_cnn(inputs.permute(0,2,1)).permute(0,2,1)
+        local_deptree_encoding = torch.cat([self.tree_lstm(tree, inputs.squeeze(0))[1] for tree in trees], dim=0).unsqueeze(0)
+        global_cnn_encoding = F.max_pool1d(self.sentence_cnn(inputs.permute(0,2,1)), sent_len).permute(0,2,1)
+
+        print(
+            "local_bilstm_encoding: ", local_bilstm_encoding.shape, "\n",
+            "local_cnn_encoding: ", local_cnn_encoding.shape, "\n",
+            "local_deptree_encoding: ", local_deptree_encoding.shape, "\n",
+            "global_cnn_encoding: ", global_cnn_encoding.shape, "\n"
+        )
 
         #and putting all of them together
         tokens_info = torch.cat(
@@ -354,13 +381,19 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
                 local_bilstm_encoding,
                 local_cnn_encoding,
                 local_deptree_encoding
-            ), dim = -1)
+            ), dim=-1)
 
         #vector associated to the highlighted token
-        pointed_token_info = tokens_info[:, pointed_token_idx,:].expand(-1, sent_len, -1)
+        pointed_token_info = tokens_info[:, pointed_token_idx,:].expand(sent_len, -1).unsqueeze(0)
 
         #expanding global info
         global_info = global_cnn_encoding.expand(-1, sent_len, -1)
+
+        print(
+            "tokens_info: ", tokens_info.shape, "\n",
+            "pointed_token_info: ", pointed_token_info.shape, "\n",
+            "global_info: ", global_info.shape, "\n"
+        )
 
         #finals inputs are a concatenation of token's info, highlighted token's info and global info
         sentence_encoding = torch.cat(
@@ -371,11 +404,24 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
             ), dim=-1)
         sentence_encoding = self.dropout(sentence_encoding)
 
+        print(
+            "sentence_encoding: ", sentence_encoding.shape, "\n"
+        )
+
+        #output entity type
+        entitytype_output = F.softmax(self.entity_type_decoder(sentence_encoding), dim = -1)
+
         #output entities
-        entities_output = self.entities_crf_decoder(sentence_encoding)
+        _, entities_output = self.entities_crf_decoder(sentence_encoding)
 
         #output relations
-        relations_output = self.relations_decoder(sentence_encoding)
+        relations_output = torch.sigmoid(self.relations_decoder(sentence_encoding))
 
-        return entities_output, relations_output
+        print(
+            "entitytype_output: ", entitytype_output.shape, "\n",
+            "entities_output: ", len(entities_output), "\n",
+            "relations_output: ", relations_output.shape, "\n"
+        )
+
+        return entitytype_output, entities_output, relations_output
 

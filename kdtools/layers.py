@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 def argmax(vec):
     # return the argmax as a python int
@@ -81,9 +82,9 @@ class ChildSumTreeLSTM(nn.Module):
 
         iou = self.ioux(inputs) + self.iouh(child_h_sum)
         i, o, u = torch.split(iou, iou.size(1) // 3, dim=1)
-        i, o, u = F.sigmoid(i), F.sigmoid(o), torch.tanh(u)
+        i, o, u = torch.sigmoid(i), torch.sigmoid(o), torch.tanh(u)
 
-        f = F.sigmoid(
+        f = torch.sigmoid(
             self.fh(child_h) +
             self.fx(inputs).repeat(len(child_h), 1)
         )
@@ -107,7 +108,7 @@ class ChildSumTreeLSTM(nn.Module):
         tree.state = self.node_forward(inputs[tree.idx], child_c, child_h)
         return tree.state
 
-class CRF:
+class CRF(nn.Module):
     def __init__(self, input_dim, tagset_size):
         super().__init__()
         self.input_dim = input_dim
@@ -115,7 +116,7 @@ class CRF:
         self.START_TAG = tagset_size
         self.STOP_TAG = tagset_size+1
 
-        self.hidden2tag = nn.Linear(hidden_dim, self.tagset_size)
+        self.hidden2tag = nn.Linear(input_dim, self.tagset_size)
 
         # Matrix of transition parameters.  Entry i,j is the score of
         # transitioning *to* i *from* j.
@@ -159,7 +160,7 @@ class CRF:
         return alpha
 
     def _get_features(self, sentence):
-        sentence = sentence.view(len(sentence), self.input_dim)
+        sentence = sentence.squeeze(0)
         sentence = self.hidden2tag(sentence)
         return sentence
 
