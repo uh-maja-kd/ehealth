@@ -3,6 +3,7 @@ from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CUR
 import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
+from functools import lru_cache
 
 class SpacyComponent:
     nlp = None
@@ -10,12 +11,16 @@ class SpacyComponent:
         self.nlp = SpacyComponent.nlp if SpacyComponent.nlp else spacy.load("es_core_news_md")
         SpacyComponent.nlp = self.nlp
 
+    @lru_cache()
+    def nlp_wrapper(self, sentence):
+        return self.nlp(sentence)
+
 class TokenizerComponent(SpacyComponent):
     def __init__(self):
         SpacyComponent.__init__(self)
 
     def get_spans(self, sentence: str):
-        return [(token.idx, token.idx+len(token)) for token in self.nlp.tokenizer(sentence)]
+        return [(token.idx, token.idx+len(token)) for token in self.nlp_wrapper(sentence)]
 
 class SpacyVectorsComponent(SpacyComponent):
 
@@ -30,7 +35,7 @@ class SpacyVectorsComponent(SpacyComponent):
 class DependencyTreeComponent(SpacyComponent):
 
     def get_dependency_tree(self, sentence: str):
-        tokens = list(self.nlp(sentence))
+        tokens = list(self.nlp_wrapper(sentence))
         nodes = [Tree(token.i, token.text+" "+token.dep_) for token in tokens]
 
         for node in nodes:
@@ -49,7 +54,7 @@ class CharEmbeddingComponent:
 
     def int2char(self):
         return dict(enumerate(self.vocab))
-    
+
     def char2int(self):
         return {char: index for index,char in self.int2char().items()}
 
@@ -80,3 +85,95 @@ class EmbeddingComponent:
     def get_word_index(self, word):
         word = self.map_word(word)
         return self.vocab[word].index if word in self.vocab else self.vocab["<unseen>"].index
+
+class PostagComponent(SpacyComponent):
+    def __init__(self):
+        super().__init__()
+
+        self.postags = [
+            "ADJ",
+            "ADP",
+            "ADV",
+            "AUX",
+            "CONJ",
+            "CCONJ",
+            "DET",
+            "INTJ",
+            "NOUN",
+            "NUM",
+            "PART",
+            "PRON",
+            "PROPN",
+            "PUNCT",
+            "SCONJ",
+            "SYM",
+            "VERB",
+            "X",
+            "SPACE"
+        ]
+        self.postag2index = {postag: idx for (idx, postag) in enumerate(self.postags)}
+
+    def get_sentence_postags(self, sentence: str):
+        tokens = list(self.nlp_wrapper(sentence))
+
+        return [self.postag2index[token.pos_] for token in tokens]
+
+class DependencyComponent(SpacyComponent):
+    def __init__(self):
+        super().__init__()
+
+        self.dependencies = [
+            "acl",
+            "advcl",
+            "advmod",
+            "amod",
+            "appos",
+            "aux",
+            "case",
+            "cc",
+            "ccomp",
+            "clf",
+            "compound",
+            "conj",
+            "cop",
+            "csubj",
+            "dep",
+            "det",
+            "discourse",
+            "dislocated",
+            "expl",
+            "fixed",
+            "flat",
+            "goeswith",
+            "iobj",
+            "list",
+            "mark",
+            "nmod",
+            "nsubj",
+            "nummod",
+            "obj",
+            "obl",
+            "orphan",
+            "parataxis",
+            "punct",
+            "reparandum",
+            "ROOT",
+            "vocative",
+            "xcomp"
+        ]
+        self.dep2index = {dep: idx for (idx, dep) in enumerate(self.dependencies)}
+
+    def get_sentence_dependencies(self, sentence: str):
+        tokens = list(self.nlp_wrapper(sentence))
+
+        return [self.dep2index[token.dep_] for token in tokens]
+
+class PositionComponent:
+    def __init__(self, max_sent_len):
+        self.max_sent_len = max_sent_len
+        self.no_positions = 2*max_sent_len+1
+
+    def get_position_encoding(self, no_words, index):
+        return [i - index + self.max_sent_len for i in range(no_words)]
+
+
