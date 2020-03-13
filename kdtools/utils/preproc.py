@@ -50,6 +50,9 @@ class CharEmbeddingComponent:
     def char2int(self):
         return {char: index for index,char in self.int2char().items()}
 
+    def encode(self):
+        return np.array([char2int[char] for char in word])
+
 class EmbeddingComponent:
     def __init__(self, wv):
         self.wv = wv

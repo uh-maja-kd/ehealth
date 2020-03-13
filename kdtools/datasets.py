@@ -325,12 +325,11 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponent):
 
 class WordCharEmbeddingDataset(SentenceEmbeddingDataset, CharEmbeddingComponent):
     def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
-        SentenceEmbeddingDataset.__init__(self, collection, entity_criteria)
-        EmbeddingComponent.__init__(self, wv)
+        SentenceEmbeddingDataset.__init__(self, collection, wv, entity_criteria)
 
     def _encode_word_sequence(self, words):
         word_embedding = SentenceEmbeddingDataset.encode_word_sequence(words)
-        char_embedding = [np.array([char2int[char] for char in word]) for word in words]
+        char_embedding = torch.tensor([CharEmbeddingComponent.encode(word) for word in words], dtype=LongTensor)
 
         return (word_embedding, char_embedding)
 
