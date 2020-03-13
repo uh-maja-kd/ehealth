@@ -552,3 +552,60 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
 
         #Relations
         self.relations_decoder = nn.Linear(sentence_features, no_relations)
+
+    def forward(self, X):
+        bert_embeddings, word_inputs, char_inputs, postag_inputs, position_inputs, trees, pointed_token_idx = X
+        sent_len = len(trees)
+
+        #obtaining embeddings vectors
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+        position_embeddings = self.position_embedding(position_inputs)
+
+        inputs = torch.cat(
+            (
+                bert_embeddings,
+                word_embeddings,
+                char_embeddings,
+                postag_embeddings,
+                position_embeddings
+            ), dim=-1)
+
+        #encoding those inputs
+        local_bilstm_encoding = self.word_bilstm(inputs)
+        local_cnn_encoding = self.word_cnn(inputs)
+        local_deptree_encoding = torch.cat([self.tree_lstm(tree, inputs) for tree in trees], dim=-1)
+        global_cnn_encoding = self.sentence_cnn(inputs)
+
+        #and putting all of them together
+        tokens_info = torch.cat(
+            (
+                local_bilstm_encoding,
+                local_cnn_encoding,
+                local_deptree_encoding
+            ), dim = -1)
+
+        #vector associated to the highlighted token
+        pointed_token_info = tokens_info[:, pointed_token_idx,:].expand(-1, sent_len, -1)
+
+        #expanding global info
+        global_info = global_cnn_encoding.expand(-1, sent_len, -1)
+
+        #finals inputs are a concatenation of token's info, highlighted token's info and global info
+        sentence_encoding = torch.cat(
+            (
+                tokens_info,
+                pointed_token_info,
+                global_info
+            ), dim=-1)
+        sentence_encoding = self.dropout(sentence_encoding)
+
+        #output entities
+        entities_output = self.entities_crf_decoder(sentence_encoding)
+
+        #output relations
+        relations_output = self.relations_decoder(sentence_encoding)
+
+        return entities_output, relations_output
+
