@@ -291,7 +291,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         self.word_embedding = PretrainedEmbedding(wv)
 
         #Char Embedding layer
-        # self.char_embedding = CharCNN()
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
 
         #POS-tag Embedding layer
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
@@ -331,13 +331,13 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         self.relations_decoder = nn.Linear(sentence_features_size, no_relations)
 
     def forward(self, X):
-        # bert_embeddings, word_inputs, char_inputs, postag_inputs, position_inputs, trees, pointed_token_idx = X
-        bert_embeddings, word_inputs, char_embeddings, postag_inputs, position_inputs, trees, pointed_token_idx = X
+        bert_embeddings, word_inputs, char_inputs, postag_inputs, position_inputs, trees, pointed_token_idx = X
+        # bert_embeddings, word_inputs, char_embeddings, postag_inputs, position_inputs, trees, pointed_token_idx = X
         sent_len = len(trees)
 
         #obtaining embeddings vectors
         word_embeddings = self.word_embedding(word_inputs)
-        # char_embeddings = self.char_embedding(char_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
         postag_embeddings = self.postag_embedding(postag_inputs)
         position_embeddings = self.position_embedding(position_inputs)
 
