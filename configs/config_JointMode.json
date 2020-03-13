@@ -1,0 +1,9 @@
+{
+    "tree_lstm_hidden_size": 300,
+    "bilstm_hidden_size": 300,
+    "local_cnn_channels": 300,
+    "local_cnn_window_size": 3,
+    "global_cnn_channels": 300,
+    "global_cnn_window_size": 3,
+    "dropout_chance": 0.2
+}
