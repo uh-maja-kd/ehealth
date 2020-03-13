@@ -12,7 +12,8 @@ from kdtools.datasets import (
     SimpleWordIndexDataset,
     RelationsDependencyParseActionsDataset,
     RelationsEmbeddingDataset,
-    SentenceEmbeddingDataset
+    SentenceEmbeddingDataset,
+    WordCharEmbeddingDataset
 )
 from kdtools.models import (
     BiLSTMDoubleDenseOracleParser,
@@ -44,7 +45,7 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
         idx = 0
         for entity_type, model in self.models_taskA.items():
             print(entity_type)
-            dataset = SentenceEmbeddingDataset(collection, model.wv)
+            dataset = WordCharEmbeddingDataset(collection, model.wv)
 
             model.eval()
             for spans, sentence, X in tqdm(dataset.evaluation):
@@ -121,12 +122,14 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
         print(f"Training taskA-{entity_type} model.")  #this should be a log
 
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
-        dataset = SentenceEmbeddingDataset(collection, wv, lambda x: x.label == entity_type)
+        dataset = WordCharEmbeddingDataset(collection, wv, lambda x: x.label == entity_type)
 
         model = EmbeddingBiLSTM_CRF(
             len(dataset.labels),
             model_config.hidden_dim,
-            wv
+            wv,
+            model_config.num_char,
+            model_config.char_dim,
         )
 
         optimizer = optim.SGD(
