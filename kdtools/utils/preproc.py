@@ -2,6 +2,7 @@ import spacy
 from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CURRENCY as currencies
 import re
 from kdtools.utils.model_helpers import Tree
+from string import ascii_lowercase
 
 class SpacyComponent:
     def __init__(self):
@@ -36,6 +37,18 @@ class DependencyTreeComponent(SpacyComponent):
 
         root = list(filter(lambda x: x.dep_ == "ROOT", tokens))[0]
         return nodes[root.i]
+
+class CharEmbeddingComponent:
+    def __init__(self):
+        self.vocab = ascii_lowercase
+        self.vocab.append('<pad>')
+        print(self.vocab)
+
+    def int2char(self):
+        return dict(enumerate(self.vocab))
+    
+    def char2int(self):
+        return {char: index for index,char in self.int2char().items()}
 
 class EmbeddingComponent:
     def __init__(self, wv):

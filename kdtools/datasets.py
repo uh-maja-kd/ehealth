@@ -7,7 +7,7 @@ from tqdm import tqdm
 from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
-from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent
+from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent, CharEmbeddingComponent
 
 class Node:
     def __init__(self):
@@ -322,6 +322,17 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponent):
 
     def _encode_word_sequence(self, words):
         return (torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long),)
+
+class WordCharEmbeddingDataset(SentenceEmbeddingDataset, CharEmbeddingComponent):
+    def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
+        SentenceEmbeddingDataset.__init__(self, collection, entity_criteria)
+        EmbeddingComponent.__init__(self, wv)
+
+    def _encode_word_sequence(self, words):
+        word_embedding = SentenceEmbeddingDataset.encode_word_sequence(words)
+        char_embedding = [np.array([char2int[char] for char in word]) for word in words]
+
+        return (word_embedding, char_embedding)
 
 class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
 

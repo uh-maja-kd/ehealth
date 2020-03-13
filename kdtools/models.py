@@ -6,6 +6,62 @@ from torch.nn.parameter import Parameter
 
 import kdtools
 # from kdtools.layers import BiLSTMEncoder
+from collections import OrderedDict
+
+class CharCNN(nn.Module):
+    """
+    CNN layers for characters
+    """
+    def __init__(self, num_layers, in_channels, out_channels, hidden_channels=None, activation='elu'):
+        super(CharCNN, self).__init__()
+        assert activation in ['elu', 'tanh']
+        if activation == 'elu':
+            ACT = nn.ELU
+        else:
+            ACT = nn.Tanh
+        layers = list()
+        for i in range(num_layers - 1):
+            layers.append(('conv{}'.format(i), nn.Conv1d(in_channels, hidden_channels, kernel_size=3, padding=1)))
+            layers.append(('act{}'.format(i), ACT()))
+            in_channels = hidden_channels
+        layers.append(('conv_top', nn.Conv1d(in_channels, out_channels, kernel_size=3, padding=1)))
+        layers.append(('act_top', ACT()))
+        self.act = ACT
+        self.net = nn.Sequential(OrderedDict(layers))
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        for layer in self.net:
+            if isinstance(layer, nn.Conv1d):
+                nn.init.xavier_uniform_(layer.weight)
+                nn.init.constant_(layer.bias, 0.)
+            else:
+                assert isinstance(layer, self.act)
+
+    def forward(self, char):
+        """
+
+        Args:
+            char: Tensor
+                the input tensor of character [batch, sent_length, char_length, in_channels]
+
+        Returns: Tensor
+            output character encoding with shape [batch, sent_length, in_channels]
+
+        """
+        # [batch, sent_length, char_length, in_channels]
+        char_size = char.size()
+        # first transform to [batch * sent_length, char_length, in_channels]
+        # then transpose to [batch * sent_length, in_channels, char_length]
+        char = char.view(-1, char_size[2], char_size[3]).transpose(1, 2)
+        # [batch * sent_length, out_channels, char_length]
+        char = self.net(char).max(dim=2)[0]
+        # [batch, sent_length, out_channels]
+        return char.view(char_size[0], char_size[1], -1)
+
+
+
 
 def argmax(vec):
     # return the argmax as a python int
@@ -205,26 +261,37 @@ class MultiheadAttention(nn.Module):
 
 class PretrainedEmbedding(nn.Module):
 
-    def __init__(self, wv):
+    def __init__(self, num_chars, char_dim, wv, embedd_char=None):
         super().__init__()
-        self.embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
+        self.word_embedding = nn.Embedding.from_pretrained(torch.FloatTensor(wv.vectors))
+        self.char_embedding = nn.Embedding(num_chars, char_dim, _weight=embedd_char, padding_idx=1)
 
-    def forward(self, x):
-        return self.embedding(x)
+    def forward(self, word, char):
+        return (self.word_embedding(word), self.char_embedding(char))
 
 class EmbeddingBiLSTM_CRF(nn.Module):
-    def __init__(self, tagset_size, hidden_dim, wv):
+    def __init__(self, tagset_size, hidden_dim, wv, num_chars, char_dim, activation):
         super().__init__()
         embed_size = len(wv.vectors[0])
-        self.embedding = PretrainedEmbedding(wv)
+        self.embedding = PretrainedEmbedding(num_chars,char_dim,wv)
+        self.char_cnn = CharCNN(2, char_dim, char_dim, hidden_channels=4 * char_dim, activation=activation)
         self.bislstmcrf = BiLSTM_CRF(embed_size, tagset_size, hidden_dim)
 
-    def neg_log_likelihood(self, X, y):
-        X = self.embedding(X)
-        return self.bislstmcrf.neg_log_likelihood(X, y)
+    def __build_input(self, input_word, input_char):
+        word_embedding, char_embedding = self.embedding(input_word, input_char)
+        char_embedding = self.char_cnn(char_embedding)
+        
+        encode = torch.cat([word_embedding, char_embedding], dim=2)
+        return encode
+        
+    def neg_log_likelihood(self, input_word, input_char, y):
+        encode = self.__build_input(input_word, input_char)
+        return self.bislstmcrf.neg_log_likelihood(encode, y)
 
-    def forward(self, X):
-        return self.bislstmcrf(self.embedding(X))
+    def forward(self, input_word, input_char):
+        encode = self.__build_input(input_word, input_char)
+
+        return self.bislstmcrf(encode)
 
 class EmbeddingAttentionBiLSTM_CRF(nn.Module):
     def __init__(self, tagset_size, hidden_dim, no_heads, wv):
