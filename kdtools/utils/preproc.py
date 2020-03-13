@@ -3,9 +3,12 @@ from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CUR
 import re
 from kdtools.utils.model_helpers import Tree
 
+
 class SpacyComponent:
+    nlp = None
     def __init__(self):
-        self.nlp = spacy.load("es_core_news_md")
+        self.nlp = SpacyComponent.nlp if SpacyComponent.nlp else spacy.load("es_core_news_md")
+        SpacyComponent.nlp = self.nlp
 
 class TokenizerComponent(SpacyComponent):
     def __init__(self):
