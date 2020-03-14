@@ -3,6 +3,7 @@ from kdtools.utils.latin import CORPUS_CHARS as latin_chars, UNITS as units, CUR
 import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
+import unicodedata
 
 class SpacyComponent:
     def __init__(self):
@@ -51,6 +52,7 @@ class CharEmbeddingComponent:
         return {char: index for index,char in self.int2char().items()}
 
     def encode(self):
+        word = unicodedata.normalize('NFKD', word).encode('ASCII', 'ignore')
         return np.array([char2int[char] for char in word])
 
 class EmbeddingComponent:
