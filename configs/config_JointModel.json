@@ -1,4 +1,8 @@
 {
+    "postag_size": 50,
+    "position_size": 50,
+    "charencoding_size": 50,
+    "dependency_size": 50,
     "tree_lstm_hidden_size": 300,
     "bilstm_hidden_size": 300,
     "local_cnn_channels": 300,

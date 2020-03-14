@@ -245,8 +245,8 @@ class JointModel(Algorithm):
         pass
 
     def train(self, collection: Collection):
-        model_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json')
-        train_config = builder.parse_config('./configs/config_BiLSTM-CRF.json')
+        model_config = builder.parse_config('./configs/config_JointModel.json')
+        train_config = builder.parse_config('./configs/config_Train_JointModel.json')
 
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
         dataset = NoEstaHechoDataset(collection, wv)
@@ -257,6 +257,8 @@ class JointModel(Algorithm):
             dataset.bert_size,
             dataset.no_postags,
             model_config.postag_size,
+            dataset.no_dependencies,
+            model_config.dependency_size,
             dataset.no_positions,
             model_config.position_size,
             dataset.no_chars,
