@@ -326,12 +326,14 @@ class SentenceEmbeddingDataset(SimpleWordIndexDataset, EmbeddingComponent):
 class WordCharEmbeddingDataset(SentenceEmbeddingDataset, CharEmbeddingComponent):
     def __init__(self, collection: Collection, wv, entity_criteria = lambda x: x):
         SentenceEmbeddingDataset.__init__(self, collection, wv, entity_criteria)
+        CharEmbeddingComponent.__init__(self, [sentence.text for sentence in collection.sentences])
 
     def _encode_word_sequence(self, words):
-        word_embedding = SentenceEmbeddingDataset.encode_word_sequence(words)
-        char_embedding = torch.tensor([CharEmbeddingComponent.encode(word) for word in words], dtype=LongTensor)
+        max_word_len = max([len(word) for word in words])
+        word_embedding = SentenceEmbeddingDataset._encode_word_sequence(self, words)
+        char_embedding = torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len) for word in words], dtype=torch.long)
 
-        return (word_embedding, char_embedding)
+        return (*word_embedding, char_embedding)
 
 class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
 

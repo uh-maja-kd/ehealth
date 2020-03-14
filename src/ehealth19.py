@@ -130,6 +130,7 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
             wv,
             model_config.num_char,
             model_config.char_dim,
+            model_config.activation
         )
 
         optimizer = optim.SGD(
@@ -141,10 +142,10 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
         for epoch in range(train_config.epochs):
             running_loss = 0
             for data in tqdm(dataset):
-                X, y = data
-                X = X.view(1,-1)
+                input_word, input_char, y = data
+                input_word = input_wordview(1,-1)
                 model.zero_grad()
-                loss = model.neg_log_likelihood(X, y)
+                loss = model.neg_log_likelihood(*X, y)
                 loss.backward()
                 optimizer.step()
                 running_loss += loss.item()
@@ -153,9 +154,9 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
             total = 0
             with torch.no_grad():
                 for data in tqdm(dataset):
-                    X, y = data
-                    X = X.view(1,-1)
-                    _, predicted = model(X)
+                    *X, y = data
+                    X = [x.view(1,-1) for x in X]
+                    _, predicted = model(*X)
                     correct += sum(torch.tensor(predicted) == y).item()
                     total += len(predicted)
 
