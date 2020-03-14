@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-from torch.nn import CrossEntropyLoss
+from torch.nn import CrossEntropyLoss, MSELoss
 from tqdm import tqdm
 from itertools import product
 
@@ -17,7 +17,8 @@ from kdtools.datasets import (
 from kdtools.models import (
     BiLSTMDoubleDenseOracleParser,
     EmbeddingAttentionBiLSTM_CRF,
-    EmbeddingBiLSTM_CRF
+    EmbeddingBiLSTM_CRF,
+    BERT_TreeLSTM_BiLSTM_CNN_JointModel
 )
 from kdtools.utils.bmewov import BMEWOV
 
@@ -233,6 +234,102 @@ class BiLSTMCRF_RelationsParsing(Algorithm):
             print(f"[{epoch + 1}] accuracy: {correct / total}")
 
         return model
+
+
+class JointModel(Algorithm):
+
+    def __init__(self):
+        self.model = None
+
+    def run(self, collection: Collection):
+        pass
+
+    def train(self, collection: Collection):
+        model_config = builder.parse_config('./configs/config_BiLSTM-Double-Dense-Oracle-Parser.json')
+        train_config = builder.parse_config('./configs/config_BiLSTM-CRF.json')
+
+        wv = Word2VecKeyedVectors.load(model_config.embedding_path)
+        dataset = NoEstaHechoDataset(collection, wv)
+
+        self.model = BERT_TreeLSTM_BiLSTM_CNN_JointModel(
+            dataset.embedding_size,
+            wv,
+            dataset.bert_size,
+            dataset.no_postags,
+            model_config.postag_size,
+            dataset.no_positions,
+            model_config.position_size,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            model_config.tree_lstm_hidden_size,
+            model_config.bilstm_hidden_size,
+            model_config.local_cnn_channels,
+            model_config.local_cnn_window_size,
+            model_config.global_cnn_channels,
+            model_config.global_cnn_window_size,
+            model_config.dropout_chance,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+            dataset.no_relations
+        )
+
+        optimizer = optim.Adam(
+            model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        ent_type_criterion = CrossEntropyLoss()
+        rels_criterion = MSELoss()
+
+        for epoch in train_config.epochs:
+            #log variables
+            running_loss_ent_type = 0
+            running_ent_loss_ent_tag = 0
+            running_loss_rels = 0
+            correct_ent_type = 0
+            correct_ent_tags = 0
+            total_tags = 0
+            true_positive_rels = 0
+            true_negative_rels = 0
+            false_positive_rels = 0
+
+
+            for data in dataset:
+                * X, y_ent_type, y_ent_tag, y_rels = data
+
+                optimizer.zero_grad()
+                model.train()
+
+                out_ent_type, out_ent_tag, out_rels = model(X)
+
+                loss_ent_type = ent_type_criterion(out_ent_type, y_ent_type)
+                running_loss_ent_type += loss_ent_type.item()
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = model.entities_crf_decoder.neg_log_likelihood(out_ent_tag, y_ent_tag)
+                running_ent_loss_ent_tag += loss_ent_tag.item()
+                loss_ent_tag.backward(retain_graph=True)
+
+                loss_rels = rels_criterion(out_rels, y_rels)
+                running_loss_rels += loss_rels.item()
+                loss_rels.backward()
+
+                optimizer.step()
+
+                model.eval()
+                #include diagnostics code
+
+            print(f"[{epoch + 1}] ent_type_loss: {loss_ent_type / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {loss_ent_tag / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] rels_loss: {running_loss_rels / len(dataset) :0.3}")
+            # print(f"[{epoch + 1}] ent_type_acc: {correct_ent_type / len(dataset) :0.3}")
+            # print(f"[{epoch + 1}] ent_tag_acc: {correct_ent_tags / total_tags :0.3}")
+            # print(f"[{epoch + 1}] rels_precision: {true_positive_rels / (true_positive_rels+true_negative_rels) :0.3}")
+            # print(f"[{epoch + 1}] rels_recovery: {true_positive_rels / (true_positive_rels+false_positive_rels) :0.3}")
+
+
+
+
 
 if __name__ == "__main__":
     from pathlib import Path
