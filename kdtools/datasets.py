@@ -506,6 +506,21 @@ class JointModelDataset(
 
         return None
 
+    def _get_relation_with_kp_as_target(self, kp, relations):
+        
+        for relation in relations:
+            if relation.destination == kp.id:
+                return relation.label
+        
+        return False
+
+    def _get_false_data(self, sent_len):
+        token_label = '<None>'
+        sentence_label = ['O' for _ in range(sent_len)]
+        relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
+
+        return (token_label, sentence_label, relation_matrix)
+
     def _get_data(self):
         data = []
         for sent_data in self.dataxsentence:
@@ -520,39 +535,32 @@ class JointModelDataset(
                 dependencytree_data
             ) = sent_data
 
-            output = []
             sent_len = len(spans)
+            total_relations = len(self.relations)
 
             for idx in range(sent_len):
                 if len(head_words[idx]) > 0:
-                    label = head_words[idx][0].label
+                    token_label = head_words[idx][0].label
 
                     entities_spans = [kp.spans for kp in sentence.keyphrases]
                     sentence_labels = BMEWOV.encode(sentence_words_spans, sentence_entities_spans)
+                    
+                    words = [sentence.text[start:end] for (start,end) in spans]
 
-                   # relation_matrix = [[0 for _ in range(sent_len)] for  ]
+                    relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
 
+                    for kp in head_words[idx]:
+                        relation = self._get_relation_with_kp_as_target(kp, sentence.relations)
+                        if relation:
+                            relation_matrix[idx][self.relation2index(relation)] = 1
+                    
 
-            # for idx ...:
-            #     if len(head_words[idx])>0:
-            #         #primer
-            #         #segunda
-            #         entities_spans = [kp.spans for kp sentence.keyphrases)]
-            #         spans
-            #         BMEWOV
-            #         #tercena
-            #         tensor = 
-            #         for head_words[idx]:
-                        
-            #         pass
-            #     else:
-            #         self._get_false_data()
+                    data.append((token_label, sentence_labels, relation_matrix))
 
-
-
-
-
-            
+                else:
+                    data.append(self._get_false_data(sent_len))
+        
+        return data
 
     def __len__(self):
         return len(self.data)
