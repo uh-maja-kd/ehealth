@@ -7,7 +7,8 @@ from tqdm import tqdm
 from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
-from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent
+from kdtools.utils.preproc import *
+from kdtools.utils.model_helpers import Tree
 
 class Node:
     def __init__(self):
@@ -396,3 +397,150 @@ class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
             mask_destination,
             torch.LongTensor([self.relation2index[label]])
         )
+
+class JointModelDataset(
+    Dataset, 
+    TokenizerComponent, 
+    EmbeddingComponent, 
+    CharEmbeddingComponent, 
+    PostagComponent, 
+    DependencyComponent, 
+    DependencyTreeComponent,
+    PositionComponent):
+
+    def __init__(self, collection: Collection, wv):
+        TokenizerComponent.__init__(self)
+        EmbeddingComponent.__init__(self, wv)
+        CharEmbeddingComponent.__init__(self, [sentence.text for sentence in collection.sentences])
+        PostagComponent.__init__(self)
+        PositionComponent.__init__(self)
+        DependencyComponent.__init__(self)
+        DependencyTreeComponent.__init__(self)
+        
+        self.raw_positive_data = self._get_raw_positive_data(collection)
+        self.dataxsentence = self._get_sentences_data(collection)
+        self.data = self._get_data()
+    
+    def _get_sentences_data(self, collection):
+        data = []
+        for sentence in collection.sentences:
+            spans = self.get_spans(sentence.text)
+            words = [sentence[beg:end] for (beg, end) in spans]
+
+            word_embedding_data = self._get_word_embedding_data(words) 
+            char_embedding_data = self._get_char_embedding_data(words)
+            postag_data = self._get_postag_data(sentence.text)
+            dependency_data = self._get_dependency_data(sentence.text)
+            dependencytree_data = self._get_dependencytree_data(sentence.text)
+            head_words = self._get_head_words(sentence)
+            
+            data.append((
+                sentence,
+                spans,
+                head_words,
+                word_embedding_data,
+                char_embedding_data,
+                postag_data,
+                dependency_data,
+                dependencytree_data
+            ))
+        
+        return data
+
+    def _get_head_words(self, sentence):
+        head_words = [[] for _ in len(spans)]
+        for kp in sentence.keyphrases:
+            try:
+                kp_indices = [spans.index(span) for span in kp.spans]
+                head_word_index = self._get_entity_head(kp_indices, dep_tree)
+                head_words[head_word_index].append(kp)
+            except Exception as e:
+                # print(e)
+                # print(sentence)
+                # print(kp)
+                # print(spans)
+                pass
+        return head_words
+
+
+    def _get_word_embedding_data(self, sentence):
+        return [self.get_word_index(word) for word in words]
+
+    def _get_char_embedding_data(self, words):
+        max_word_len = max([len(word) for word in words])
+        return [CharEmbeddingComponent.encode(self, word, max_word_len) for word in words]
+
+    def _get_postag_data(self, sentence):
+        return self.get_sentence_postags(sentence)
+    
+    def _get_dependency_data(sentence):
+        return self.get_sentence_dependencies(sentence)
+    
+    def _find_node(tree, idx):
+        if tree.idx == idx:
+            return tree
+
+        else:
+            for child in tree.children:
+                node = find_node(child, idx)
+                if node:
+                    return node
+            return False
+
+    def _get_dependencytree_data(sentence):
+        dep_tree = self.get_dependency_tree(sentence)
+        sent_len = len(self.get_spans(sentence))
+        return [find_node(dep_tree, i) for i in range(sent_len)]
+
+    def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
+        
+        if dependency_tree.idx in entity_words:
+            return dependency_tree.idx
+
+        for child in dependency_tree.children:
+            ans = self._get_entity_head(entity_words, child)
+            if ans is not None:
+                return ans
+
+        return None
+
+    def _get_data(self):
+        data = []
+        for sent_data in self.dataxsentence:
+            (
+                sentence,
+                spans,
+                head_words,
+                word_embedding_data,
+                char_embedding_data,
+                postag_data,
+                dependency_data,
+                dependencytree_data
+            ) = sent_data
+
+            # for idx ...:
+            #     if len(head_words[idx])>0:
+            #         #primer
+            #         #segunda
+            #         entities_spans = [kp.spans for kp sentence.keyphrases)]
+            #         spans
+            #         BMEWOV
+            #         #tercena
+            #         tensor = 
+            #         for head_words[idx]:
+                        
+            #         pass
+            #     else:
+            #         self._get_false_data()
+
+
+
+
+
+            
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, index):
+        data = self.data[index]

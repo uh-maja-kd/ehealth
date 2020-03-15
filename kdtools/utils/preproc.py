@@ -47,17 +47,22 @@ class DependencyTreeComponent(SpacyComponent):
 
 
 class CharEmbeddingComponent:
-    def __init__(self):
-        self.vocab = ascii_lowercase
-        self.vocab.append('<pad>')
-        print(self.vocab)
+    def __init__(self, sentences):
+        self.abc = ['<pad>','<unk>']  + list(set(list(''.join(sentences))))
+        self.int2char = dict(enumerate(self.abc))
+        self.char2int = {char: index for index,char in self.int2char.items()}
+        print(self.abc)
 
-    def int2char(self):
-        return dict(enumerate(self.vocab))
+    def encode(self, word, max_word_len):
+        print(word)
+        print(max_word_len)
+        solve = [self.char2int[char] for char in word]
+        len_solve = len(solve)
+        for i in range(max_word_len - len_solve):
+            solve += [self.char2int['<pad>']]
 
-    def char2int(self):
-        return {char: index for index,char in self.int2char().items()}
-
+        return np.array(solve)
+        
 class EmbeddingComponent:
     def __init__(self, wv):
         self.wv = wv
