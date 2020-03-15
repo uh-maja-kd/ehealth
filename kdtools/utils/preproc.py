@@ -123,6 +123,31 @@ class PostagComponent(SpacyComponent):
 
         return [self.postag2index[token.pos_] for token in tokens]
 
+
+class RelationComponent(SpacyComponent):
+    def __init__(self):
+        super().__init__()
+    
+        self.relations = [
+            "subject",
+            "target",
+            "in-place",
+            "in-time",
+            "in-context",
+            "arg",
+            "domain",
+            "has-property",
+            "part-of",
+            "is-a",
+            "same-as",
+            "causes",
+            "entails"
+        ]
+        self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
+    
+    def get_sentence_relations(self, sentence):
+        pass 
+
 class DependencyComponent(SpacyComponent):
     def __init__(self):
         super().__init__()

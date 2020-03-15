@@ -406,7 +406,8 @@ class JointModelDataset(
     PostagComponent, 
     DependencyComponent, 
     DependencyTreeComponent,
-    PositionComponent):
+    PositionComponent,
+    RelationComponent):
 
     def __init__(self, collection: Collection, wv):
         TokenizerComponent.__init__(self)
@@ -416,6 +417,7 @@ class JointModelDataset(
         PositionComponent.__init__(self)
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
+        RelationComponent.__init__(self)
         
         self.raw_positive_data = self._get_raw_positive_data(collection)
         self.dataxsentence = self._get_sentences_data(collection)
@@ -517,6 +519,19 @@ class JointModelDataset(
                 dependency_data,
                 dependencytree_data
             ) = sent_data
+
+            output = []
+            sent_len = len(spans)
+
+            for idx in range(sent_len):
+                if len(head_words[idx]) > 0:
+                    label = head_words[idx][0].label
+
+                    entities_spans = [kp.spans for kp in sentence.keyphrases]
+                    sentence_labels = BMEWOV.encode(sentence_words_spans, sentence_entities_spans)
+
+                   # relation_matrix = [[0 for _ in range(sent_len)] for  ]
+
 
             # for idx ...:
             #     if len(head_words[idx])>0:
