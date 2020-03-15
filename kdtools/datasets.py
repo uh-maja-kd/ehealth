@@ -404,9 +404,9 @@ class JointModelDataset(
     EmbeddingComponent, 
     CharEmbeddingComponent, 
     PostagComponent, 
+    PositionComponent,
     DependencyComponent, 
     DependencyTreeComponent,
-    PositionComponent,
     RelationComponent):
 
     def __init__(self, collection: Collection, wv):
@@ -414,27 +414,27 @@ class JointModelDataset(
         EmbeddingComponent.__init__(self, wv)
         CharEmbeddingComponent.__init__(self, [sentence.text for sentence in collection.sentences])
         PostagComponent.__init__(self)
-        PositionComponent.__init__(self)
+        PositionComponent.__init__(self, max([len(self.get_spans(sentence.text)) for sentence in collection.sentences]))
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
         RelationComponent.__init__(self)
         
-        self.raw_positive_data = self._get_raw_positive_data(collection)
-        self.dataxsentence = self._get_sentences_data(collection)
-        self.data = self._get_data()
+        #self.raw_positive_data = self._get_raw_positive_data(collection)
+        #self.dataxsentence = self._get_sentences_data(collection)
+        #self.data = self._get_data()
     
-    def _get_sentences_data(self, collection):
+    def get_sentences_data(self, collection):
         data = []
         for sentence in collection.sentences:
             spans = self.get_spans(sentence.text)
-            words = [sentence[beg:end] for (beg, end) in spans]
+            words = [sentence.text[beg:end] for (beg, end) in spans]
 
             word_embedding_data = self._get_word_embedding_data(words) 
             char_embedding_data = self._get_char_embedding_data(words)
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
             dependencytree_data = self._get_dependencytree_data(sentence.text)
-            head_words = self._get_head_words(sentence)
+            head_words = self._get_head_words(sentence, spans)
             
             data.append((
                 sentence,
@@ -449,8 +449,8 @@ class JointModelDataset(
         
         return data
 
-    def _get_head_words(self, sentence):
-        head_words = [[] for _ in len(spans)]
+    def _get_head_words(self, sentence, spans):
+        head_words = [[] for _ in range(len(spans))]
         for kp in sentence.keyphrases:
             try:
                 kp_indices = [spans.index(span) for span in kp.spans]
@@ -465,7 +465,7 @@ class JointModelDataset(
         return head_words
 
 
-    def _get_word_embedding_data(self, sentence):
+    def _get_word_embedding_data(self, words):
         return [self.get_word_index(word) for word in words]
 
     def _get_char_embedding_data(self, words):
@@ -475,24 +475,24 @@ class JointModelDataset(
     def _get_postag_data(self, sentence):
         return self.get_sentence_postags(sentence)
     
-    def _get_dependency_data(sentence):
+    def _get_dependency_data(self ,sentence):
         return self.get_sentence_dependencies(sentence)
     
-    def _find_node(tree, idx):
+    def _find_node(self, tree, idx):
         if tree.idx == idx:
             return tree
 
         else:
             for child in tree.children:
-                node = find_node(child, idx)
+                node = self._find_node(child, idx)
                 if node:
                     return node
             return False
 
-    def _get_dependencytree_data(sentence):
+    def _get_dependencytree_data(self, sentence):
         dep_tree = self.get_dependency_tree(sentence)
         sent_len = len(self.get_spans(sentence))
-        return [find_node(dep_tree, i) for i in range(sent_len)]
+        return [self._find_node(dep_tree, i) for i in range(sent_len)]
 
     def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
         
@@ -521,7 +521,7 @@ class JointModelDataset(
 
         return (token_label, sentence_label, relation_matrix)
 
-    def _get_data(self):
+    def get_data(self):
         data = []
         for sent_data in self.dataxsentence:
             (

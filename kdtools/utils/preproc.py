@@ -4,6 +4,7 @@ import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
 from functools import lru_cache
+import numpy as np
 
 class SpacyComponent:
     nlp = None
@@ -54,8 +55,8 @@ class CharEmbeddingComponent:
         print(self.abc)
 
     def encode(self, word, max_word_len):
-        print(word)
-        print(max_word_len)
+        #print(word)
+        #print(max_word_len)
         solve = [self.char2int[char] for char in word]
         len_solve = len(solve)
         for i in range(max_word_len - len_solve):
@@ -93,7 +94,7 @@ class EmbeddingComponent:
 
 class PostagComponent(SpacyComponent):
     def __init__(self):
-        super().__init__()
+        super(SpacyComponent).__init__()
 
         self.postags = [
             "ADJ",
@@ -150,7 +151,7 @@ class RelationComponent(SpacyComponent):
 
 class DependencyComponent(SpacyComponent):
     def __init__(self):
-        super().__init__()
+        super(SpacyComponent).__init__()
 
         self.dependencies = [
             "acl",
