@@ -572,6 +572,7 @@ class JointModelDataset(
                     dependency_data,
                     position_data,
                     dependencytree_data,
+                    idx,
                     token_label,
                     sentence_labels,
                     relation_matrix)

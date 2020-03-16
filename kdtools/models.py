@@ -306,7 +306,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
 
 
         #ENCODING (SHARED PARAMETERS)
-
+        bert_size = 0
         word_rep_size = embedding_size + bert_size + postag_size + dependency_size + position_size + charencoding_size
 
         #Word-encoding BiLSTM
@@ -337,7 +337,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
 
     def forward(self, X):
         (
-            bert_embeddings,
+            # bert_embeddings,
             word_inputs,
             char_inputs,
             postag_inputs,
@@ -358,7 +358,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         dependency_embeddings = self.position_embedding(dependency_inputs)
 
         print(
-            "bert_embeddings: ", bert_embeddings.shape, "\n",
+            # "bert_embeddings: ", bert_embeddings.shape, "\n",
             "word_embeddings: ", word_embeddings.shape, "\n",
             "char_embeddings: ", char_embeddings.shape, "\n",
             "postag_embeddings: ", postag_embeddings.shape, "\n",
@@ -368,7 +368,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
 
         inputs = torch.cat(
             (
-                bert_embeddings,
+                # bert_embeddings,
                 word_embeddings,
                 char_embeddings,
                 postag_embeddings,
