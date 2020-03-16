@@ -4,6 +4,8 @@ import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
 from functools import lru_cache
+from torch.nn.functional import one_hot
+import numpy as np
 
 class SpacyComponent:
     nlp = None
@@ -47,16 +49,21 @@ class DependencyTreeComponent(SpacyComponent):
 
 
 class CharEmbeddingComponent:
-    def __init__(self):
-        self.vocab = ascii_lowercase
-        self.vocab.append('<pad>')
-        print(self.vocab)
+    def __init__(self, sentences):
+        self.abc = ['<pad>','<unk>']  + list(set(list(''.join(sentences))))
+        self.int2char = dict(enumerate(self.abc))
+        self.char2int = {char: index for index,char in self.int2char.items()}
+        #print(self.abc)
 
-    def int2char(self):
-        return dict(enumerate(self.vocab))
+    def encode_chars_indices(self, word, max_word_len, sent_len):
+        #print(word)
+        #print(max_word_len)
+        solve = [self.char2int[char] for char in word]
+        len_solve = len(solve)
+        for i in range(max_word_len - len_solve):
+            solve += [self.char2int['<pad>']]
 
-    def char2int(self):
-        return {char: index for index,char in self.int2char().items()}
+        return solve
 
 class EmbeddingComponent:
     def __init__(self, wv):
@@ -88,7 +95,7 @@ class EmbeddingComponent:
 
 class PostagComponent(SpacyComponent):
     def __init__(self):
-        super().__init__()
+        super(SpacyComponent).__init__()
 
         self.postags = [
             "ADJ",
@@ -118,9 +125,31 @@ class PostagComponent(SpacyComponent):
 
         return [self.postag2index[token.pos_] for token in tokens]
 
-class DependencyComponent(SpacyComponent):
+
+class RelationComponent(SpacyComponent):
     def __init__(self):
         super().__init__()
+
+        self.relations = [
+            "subject",
+            "target",
+            "in-place",
+            "in-time",
+            "in-context",
+            "arg",
+            "domain",
+            "has-property",
+            "part-of",
+            "is-a",
+            "same-as",
+            "causes",
+            "entails"
+        ]
+        self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
+
+class DependencyComponent(SpacyComponent):
+    def __init__(self):
+        super(SpacyComponent).__init__()
 
         self.dependencies = [
             "acl",
@@ -159,14 +188,15 @@ class DependencyComponent(SpacyComponent):
             "reparandum",
             "ROOT",
             "vocative",
-            "xcomp"
+            "xcomp",
+            "other",
+            'expl:pass'
         ]
         self.dep2index = {dep: idx for (idx, dep) in enumerate(self.dependencies)}
 
     def get_sentence_dependencies(self, sentence: str):
         tokens = list(self.nlp_wrapper(sentence))
-
-        return [self.dep2index[token.dep_] for token in tokens]
+        return [self.dep2index[token.dep_ if token.dep_ != '' else 'other'] for token in tokens]
 
 class PositionComponent:
     def __init__(self, max_sent_len):
@@ -176,4 +206,31 @@ class PositionComponent:
     def get_position_encoding(self, no_words, index):
         return [i - index + self.max_sent_len for i in range(no_words)]
 
+class EntityTagsComponent:
+    def __init__(self):
 
+        self.tags = [
+            "Concept",
+            "Action",
+            "Reference",
+            "Predicate",
+            "<None>"
+        ]
+
+        self.tag2index = {tag: idx for (idx, tag) in enumerate(self.tags)}
+
+    def get_tag_encoding(self, sequence):
+        return [self.tag2index[tag] for tag in sequence]
+
+
+class ShufflerComponent:
+
+    def get_shuffled_data(self):
+        perm = permutation(len(self))
+        for idx in perm:
+            yield self[idx]
+
+class BMEWOVLabelsComponent:
+    def __init__(self):
+        self.labels = ["B", "M", "E", "W", "O", "V"]
+        self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}

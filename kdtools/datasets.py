@@ -7,7 +7,9 @@ from tqdm import tqdm
 from operator import add
 from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
-from kdtools.utils.preproc import TokenizerComponent, SpacyVectorsComponent, EmbeddingComponent
+from kdtools.utils.preproc import *
+from kdtools.utils.model_helpers import Tree
+from itertools import product
 
 class Node:
     def __init__(self):
@@ -396,3 +398,190 @@ class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
             mask_destination,
             torch.LongTensor([self.relation2index[label]])
         )
+
+class JointModelDataset(
+    Dataset,
+    TokenizerComponent,
+    EmbeddingComponent,
+    CharEmbeddingComponent,
+    PostagComponent,
+    PositionComponent,
+    DependencyComponent,
+    DependencyTreeComponent,
+    EntityTagsComponent,
+    RelationComponent,
+    BMEWOVLabelsComponent,
+    ShufflerComponent):
+
+    def __init__(self, collection: Collection, wv):
+        print("Loading nlp...")
+        TokenizerComponent.__init__(self)
+        EmbeddingComponent.__init__(self, wv)
+        CharEmbeddingComponent.__init__(self, [sentence.text for sentence in collection.sentences])
+        PostagComponent.__init__(self)
+        PositionComponent.__init__(self, max([len(self.get_spans(sentence.text)) for sentence in collection.sentences]))
+        DependencyComponent.__init__(self)
+        DependencyTreeComponent.__init__(self)
+        EntityTagsComponent.__init__(self)
+        RelationComponent.__init__(self)
+        BMEWOVLabelsComponent.__init__(self)
+        ShufflerComponent.__init__(self)
+
+        self.dataxsentence = self._get_sentences_data(collection)
+        self.data = self.get_data()
+
+    def _get_sentences_data(self, collection):
+        data = []
+        print("Collecting data per sentence...")
+        for sentence in tqdm(collection.sentences):
+            spans = self.get_spans(sentence.text)
+            words = [sentence.text[beg:end] for (beg, end) in spans]
+
+            word_embedding_data = self._get_word_embedding_data(words)
+            char_embedding_data = self._get_char_embedding_data(words)
+            postag_data = self._get_postag_data(sentence.text)
+            dependency_data = self._get_dependency_data(sentence.text)
+            dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
+            head_words = self._get_head_words(sentence, spans, dep_tree)
+
+            data.append((
+                sentence,
+                spans,
+                head_words,
+                word_embedding_data,
+                char_embedding_data,
+                postag_data,
+                dependency_data,
+                dependencytree_data
+            ))
+
+        return data
+
+    def _get_head_words(self, sentence, spans, dep_tree):
+        head_words = [[] for _ in range(len(spans))]
+        for kp in sentence.keyphrases:
+            try:
+                kp_indices = [spans.index(span) for span in kp.spans]
+                head_word_index = self._get_entity_head(kp_indices, dep_tree)
+                head_words[head_word_index].append(kp)
+            except Exception as e:
+                # print(e)
+                # print(sentence)
+                # print(kp)
+                # print(spans)
+                pass
+        return head_words
+
+
+    def _get_word_embedding_data(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+    def _get_char_embedding_data(self, words):
+        max_word_len = max([len(word) for word in words])
+        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
+        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
+
+    def _get_postag_data(self, sentence):
+        return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
+
+    def _get_dependency_data(self ,sentence):
+        return torch.tensor(self.get_sentence_dependencies(sentence), dtype=torch.long)
+
+    def _find_node(self, tree, idx):
+        if tree.idx == idx:
+            return tree
+
+        else:
+            for child in tree.children:
+                node = self._find_node(child, idx)
+                if node:
+                    return node
+            return False
+
+    def _get_dependencytree_data(self, sentence):
+        dep_tree = self.get_dependency_tree(sentence)
+        sent_len = len(self.get_spans(sentence))
+        return dep_tree, [self._find_node(dep_tree, i) for i in range(sent_len)]
+
+    def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
+
+        if dependency_tree.idx in entity_words:
+            return dependency_tree.idx
+
+        for child in dependency_tree.children:
+            ans = self._get_entity_head(entity_words, child)
+            if ans is not None:
+                return ans
+
+        return None
+
+    def _get_false_data(self, sent_len):
+        token_label = torch.tensor(self.get_tag_encoding(['<None>']), dtype=torch.long)
+        sentence_label = torch.tensor([self.label2index['O'] for _ in range(sent_len)], dtype=torch.long)
+        relation_matrix = torch.tensor([[0 for _ in range(sent_len)] for _ in range(len(self.relations))], dtype=torch.float32)
+
+        return (token_label, sentence_label, relation_matrix)
+
+    def get_data(self):
+        data = []
+        print("Creating dataset...")
+        for sent_data in tqdm(self.dataxsentence):
+            (
+                sentence,
+                spans,
+                head_words,
+                word_embedding_data,
+                char_embedding_data,
+                postag_data,
+                dependency_data,
+                dependencytree_data
+            ) = sent_data
+
+            sent_len = len(spans)
+            total_relations = len(self.relations)
+
+            for idx in range(sent_len):
+                position_data = torch.tensor(self.get_position_encoding(sent_len, idx), dtype=torch.long)
+
+                if len(head_words[idx]) > 0:
+                    token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
+
+                    entities_spans = [kp.spans for kp in head_words[idx]]
+                    sentence_labels = BMEWOV.encode(spans, entities_spans)
+                    sentence_labels = torch.tensor([self.label2index[label] for label in sentence_labels], dtype = torch.long)
+
+                    words = [sentence.text[start:end] for (start,end) in spans]
+
+                    relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
+
+                    for dest_idx in range(sent_len):
+                        for orig, dest in product(head_words[idx], head_words[dest_idx]):
+                            relations = sentence.find_relations(orig.id, dest.id)
+                            for relation in relations:
+                                relation_matrix[self.relation2index[relation.label]][dest_idx] = 1
+
+                    relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
+
+                else:
+                    token_label, sentence_labels, relation_matrix = self._get_false_data(sent_len)
+
+                data.append((
+                    word_embedding_data,
+                    char_embedding_data,
+                    postag_data,
+                    dependency_data,
+                    position_data,
+                    dependencytree_data,
+                    idx,
+                    token_label,
+                    sentence_labels,
+                    relation_matrix)
+                )
+
+        return data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
