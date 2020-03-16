@@ -433,8 +433,8 @@ class JointModelDataset(
             char_embedding_data = self._get_char_embedding_data(words)
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
-            dependencytree_data = self._get_dependencytree_data(sentence.text)
-            head_words = self._get_head_words(sentence, spans, dependencytree_data)
+            dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
+            head_words = self._get_head_words(sentence, spans, dep_tree)
             
             data.append((
                 sentence,
@@ -466,17 +466,17 @@ class JointModelDataset(
 
 
     def _get_word_embedding_data(self, words):
-        return [self.get_word_index(word) for word in words]
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
 
     def _get_char_embedding_data(self, words):
         max_word_len = max([len(word) for word in words])
-        return [CharEmbeddingComponent.encode(self, word, max_word_len) for word in words]
+        return torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len) for word in words], dtype=torch.long)
 
     def _get_postag_data(self, sentence):
-        return self.get_sentence_postags(sentence)
+        return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
     
     def _get_dependency_data(self ,sentence):
-        return self.get_sentence_dependencies(sentence)
+        return torch.tensor(self.get_sentence_dependencies(sentence), dtype=torch.long)
     
     def _find_node(self, tree, idx):
         if tree.idx == idx:
@@ -492,7 +492,7 @@ class JointModelDataset(
     def _get_dependencytree_data(self, sentence):
         dep_tree = self.get_dependency_tree(sentence)
         sent_len = len(self.get_spans(sentence))
-        return [self._find_node(dep_tree, i) for i in range(sent_len)]
+        return dep_tree, [self._find_node(dep_tree, i) for i in range(sent_len)]
 
     def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
         

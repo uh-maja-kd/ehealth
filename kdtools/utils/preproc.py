@@ -208,4 +208,20 @@ class PositionComponent:
     def get_position_encoding(self, no_words, index):
         return [i - index + self.max_sent_len for i in range(no_words)]
 
+class EntityComponent:
+    def __init__(self):
+
+        self.tags = [
+            "Concept",
+            "Action", 
+            "Reference", 
+            "Predicate",
+            "None"
+        ]
+
+        self.tag2index = {tag: idx for (idx, tag) in enumerate(self.tags)}
+    
+    def get_tag_encoding(self, sequence):
+        return [self.tag2index[tag] for tag in sequence]
+
 
