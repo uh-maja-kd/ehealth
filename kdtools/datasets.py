@@ -407,6 +407,7 @@ class JointModelDataset(
     PositionComponent,
     DependencyComponent, 
     DependencyTreeComponent,
+    EntityComponent,
     RelationComponent):
 
     def __init__(self, collection: Collection, wv):
@@ -417,13 +418,14 @@ class JointModelDataset(
         PositionComponent.__init__(self, max([len(self.get_spans(sentence.text)) for sentence in collection.sentences]))
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
+        EntityComponent.__init__(self)
         RelationComponent.__init__(self)
         
         #self.raw_positive_data = self._get_raw_positive_data(collection)
-        #self.dataxsentence = self._get_sentences_data(collection)
+        self.dataxsentence = self._get_sentences_data(collection)
         #self.data = self._get_data()
     
-    def get_sentences_data(self, collection):
+    def _get_sentences_data(self, collection):
         data = []
         for sentence in collection.sentences:
             spans = self.get_spans(sentence.text)
@@ -515,9 +517,9 @@ class JointModelDataset(
         return False
 
     def _get_false_data(self, sent_len):
-        token_label = '<None>'
+        token_label = self.get_tag_encoding(['<None>'])
         sentence_label = ['O' for _ in range(sent_len)]
-        relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
+        relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
 
         return (token_label, sentence_label, relation_matrix)
 
@@ -540,25 +542,47 @@ class JointModelDataset(
 
             for idx in range(sent_len):
                 if len(head_words[idx]) > 0:
-                    token_label = head_words[idx][0].label
+                    token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
 
                     entities_spans = [kp.spans for kp in sentence.keyphrases]
-                    sentence_labels = BMEWOV.encode(sentence_words_spans, sentence_entities_spans)
+                    sentence_labels = BMEWOV.encode(spans, entities_spans)
                     
                     words = [sentence.text[start:end] for (start,end) in spans]
 
-                    relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
+                    #relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
+                    relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
 
                     for kp in head_words[idx]:
                         relation = self._get_relation_with_kp_as_target(kp, sentence.relations)
                         if relation:
-                            relation_matrix[idx][self.relation2index(relation)] = 1
+                            #print("Put relation")
+                            relation_matrix[self.relation2index[relation]][idx] = 1
                     
+                    relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
 
-                    data.append((token_label, sentence_labels, relation_matrix))
+                    data.append((
+                        word_embedding_data, 
+                        char_embedding_data,
+                        postag_data,
+                        dependency_data,
+                        dependencytree_data,
+                        token_label, 
+                        sentence_labels, 
+                        relation_matrix))
 
                 else:
-                    data.append(self._get_false_data(sent_len))
+                    token_label, sentence_labels, relation_matrix = self._get_false_data(sent_len)
+
+                    data.append((
+                        word_embedding_data, 
+                        char_embedding_data,
+                        postag_data,
+                        dependency_data,
+                        dependencytree_data,
+                        token_label, 
+                        sentence_labels, 
+                        relation_matrix)
+                    )
         
         return data
 

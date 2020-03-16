@@ -216,7 +216,7 @@ class EntityComponent:
             "Action", 
             "Reference", 
             "Predicate",
-            "None"
+            "<None>"
         ]
 
         self.tag2index = {tag: idx for (idx, tag) in enumerate(self.tags)}
