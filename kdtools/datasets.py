@@ -399,13 +399,13 @@ class EntitiesPairsDataset(Dataset, TokenizerComponent, EmbeddingComponent):
         )
 
 class JointModelDataset(
-    Dataset, 
-    TokenizerComponent, 
-    EmbeddingComponent, 
-    CharEmbeddingComponent, 
-    PostagComponent, 
+    Dataset,
+    TokenizerComponent,
+    EmbeddingComponent,
+    CharEmbeddingComponent,
+    PostagComponent,
     PositionComponent,
-    DependencyComponent, 
+    DependencyComponent,
     DependencyTreeComponent,
     EntityComponent,
     RelationComponent):
@@ -420,11 +420,11 @@ class JointModelDataset(
         DependencyTreeComponent.__init__(self)
         EntityComponent.__init__(self)
         RelationComponent.__init__(self)
-        
+
         #self.raw_positive_data = self._get_raw_positive_data(collection)
         self.dataxsentence = self._get_sentences_data(collection)
         #self.data = self._get_data()
-    
+
     def _get_sentences_data(self, collection):
         data = []
         for sentence in collection.sentences:
@@ -437,7 +437,7 @@ class JointModelDataset(
             dependency_data = self._get_dependency_data(sentence.text)
             dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
             head_words = self._get_head_words(sentence, spans, dep_tree)
-            
+
             data.append((
                 sentence,
                 spans,
@@ -448,7 +448,7 @@ class JointModelDataset(
                 dependency_data,
                 dependencytree_data
             ))
-        
+
         return data
 
     def _get_head_words(self, sentence, spans, dep_tree):
@@ -477,10 +477,10 @@ class JointModelDataset(
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
-    
+
     def _get_dependency_data(self ,sentence):
         return torch.tensor(self.get_sentence_dependencies(sentence), dtype=torch.long)
-    
+
     def _find_node(self, tree, idx):
         if tree.idx == idx:
             return tree
@@ -498,7 +498,7 @@ class JointModelDataset(
         return dep_tree, [self._find_node(dep_tree, i) for i in range(sent_len)]
 
     def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
-        
+
         if dependency_tree.idx in entity_words:
             return dependency_tree.idx
 
@@ -510,11 +510,11 @@ class JointModelDataset(
         return None
 
     def _get_relation_with_kp_as_target(self, kp, relations):
-        
+
         for relation in relations:
             if relation.destination == kp.id:
                 return relation.label
-        
+
         return False
 
     def _get_false_data(self, sent_len):
@@ -547,7 +547,7 @@ class JointModelDataset(
 
                     entities_spans = [kp.spans for kp in sentence.keyphrases]
                     sentence_labels = BMEWOV.encode(spans, entities_spans), dtype=torch.long
-                    
+
                     words = [sentence.text[start:end] for (start,end) in spans]
 
                     #relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
@@ -558,37 +558,37 @@ class JointModelDataset(
                         if relation:
                             #print("Put relation")
                             relation_matrix[self.relation2index[relation]][idx] = 1
-                    
+
                     relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
 
                     data.append((
-                        word_embedding_data, 
+                        word_embedding_data,
                         char_embedding_data,
                         postag_data,
                         dependency_data,
                         dependencytree_data,
-                        token_label, 
-                        sentence_labels, 
+                        token_label,
+                        sentence_labels,
                         relation_matrix))
 
                 else:
                     token_label, sentence_labels, relation_matrix = self._get_false_data(sent_len)
 
                     data.append((
-                        word_embedding_data, 
+                        word_embedding_data,
                         char_embedding_data,
                         postag_data,
                         dependency_data,
                         dependencytree_data,
-                        token_label, 
-                        sentence_labels, 
+                        token_label,
+                        sentence_labels,
                         relation_matrix)
                     )
-        
+
         return data
 
     def __len__(self):
         return len(self.data)
-    
+
     def __getitem__(self, index):
         data = self.data[index]
