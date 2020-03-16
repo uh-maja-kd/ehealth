@@ -472,7 +472,8 @@ class JointModelDataset(
 
     def _get_char_embedding_data(self, words):
         max_word_len = max([len(word) for word in words])
-        return one_hot(torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len, len(words)) for word in words], dtype=torch.long), len(self.abc))
+        return one_hot(torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len, len(words)) for word in words], dtype=torch.long)
+                        .type(dtype = torch.float32), len(self.abc))
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
@@ -517,9 +518,9 @@ class JointModelDataset(
         return False
 
     def _get_false_data(self, sent_len):
-        token_label = self.get_tag_encoding(['<None>'])
-        sentence_label = ['O' for _ in range(sent_len)]
-        relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
+        token_label = torch.tensor(self.get_tag_encoding(['<None>']), dtype=torch.long)
+        sentence_label = torch.tensor(['O' for _ in range(sent_len)], dtype=torch.long)
+        relation_matrix = torch.tensor([[0 for _ in range(sent_len)] for _ in range(len(self.relations))], dtype=torch.long)
 
         return (token_label, sentence_label, relation_matrix)
 
@@ -545,7 +546,7 @@ class JointModelDataset(
                     token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
 
                     entities_spans = [kp.spans for kp in sentence.keyphrases]
-                    sentence_labels = BMEWOV.encode(spans, entities_spans)
+                    sentence_labels = BMEWOV.encode(spans, entities_spans), dtype=torch.long
                     
                     words = [sentence.text[start:end] for (start,end) in spans]
 
