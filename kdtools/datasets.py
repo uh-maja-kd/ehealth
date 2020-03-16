@@ -434,7 +434,7 @@ class JointModelDataset(
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
             dependencytree_data = self._get_dependencytree_data(sentence.text)
-            head_words = self._get_head_words(sentence, spans)
+            head_words = self._get_head_words(sentence, spans, dependencytree_data)
             
             data.append((
                 sentence,
@@ -449,7 +449,7 @@ class JointModelDataset(
         
         return data
 
-    def _get_head_words(self, sentence, spans):
+    def _get_head_words(self, sentence, spans, dep_tree):
         head_words = [[] for _ in range(len(spans))]
         for kp in sentence.keyphrases:
             try:

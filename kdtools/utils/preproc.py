@@ -190,14 +190,15 @@ class DependencyComponent(SpacyComponent):
             "reparandum",
             "ROOT",
             "vocative",
-            "xcomp"
+            "xcomp",
+            "other",
+            'expl:pass'
         ]
         self.dep2index = {dep: idx for (idx, dep) in enumerate(self.dependencies)}
 
     def get_sentence_dependencies(self, sentence: str):
         tokens = list(self.nlp_wrapper(sentence))
-
-        return [self.dep2index[token.dep_] for token in tokens]
+        return [self.dep2index[token.dep_ if token.dep_ != '' else 'other'] for token in tokens]
 
 class PositionComponent:
     def __init__(self, max_sent_len):
