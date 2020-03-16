@@ -4,6 +4,7 @@ import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
 from functools import lru_cache
+from torch.nn.functional import one_hot
 import numpy as np
 
 class SpacyComponent:
@@ -52,9 +53,9 @@ class CharEmbeddingComponent:
         self.abc = ['<pad>','<unk>']  + list(set(list(''.join(sentences))))
         self.int2char = dict(enumerate(self.abc))
         self.char2int = {char: index for index,char in self.int2char.items()}
-        print(self.abc)
+        #print(self.abc)
 
-    def encode(self, word, max_word_len):
+    def encode(self, word, max_word_len, sent_len):
         #print(word)
         #print(max_word_len)
         solve = [self.char2int[char] for char in word]
@@ -62,7 +63,7 @@ class CharEmbeddingComponent:
         for i in range(max_word_len - len_solve):
             solve += [self.char2int['<pad>']]
 
-        return np.array(solve)
+        return solve
         
 class EmbeddingComponent:
     def __init__(self, wv):

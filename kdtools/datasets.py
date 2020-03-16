@@ -472,7 +472,7 @@ class JointModelDataset(
 
     def _get_char_embedding_data(self, words):
         max_word_len = max([len(word) for word in words])
-        return torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len) for word in words], dtype=torch.long)
+        return one_hot(torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len, len(words)) for word in words], dtype=torch.long), len(self.abc))
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
