@@ -64,7 +64,7 @@ class CharEmbeddingComponent:
             solve += [self.char2int['<pad>']]
 
         return solve
-        
+
 class EmbeddingComponent:
     def __init__(self, wv):
         self.wv = wv
@@ -129,7 +129,7 @@ class PostagComponent(SpacyComponent):
 class RelationComponent(SpacyComponent):
     def __init__(self):
         super().__init__()
-    
+
         self.relations = [
             "subject",
             "target",
@@ -146,9 +146,9 @@ class RelationComponent(SpacyComponent):
             "entails"
         ]
         self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
-    
+
     def get_sentence_relations(self, sentence):
-        pass 
+        pass
 
 class DependencyComponent(SpacyComponent):
     def __init__(self):
@@ -214,15 +214,21 @@ class EntityComponent:
 
         self.tags = [
             "Concept",
-            "Action", 
-            "Reference", 
+            "Action",
+            "Reference",
             "Predicate",
             "<None>"
         ]
 
         self.tag2index = {tag: idx for (idx, tag) in enumerate(self.tags)}
-    
+
     def get_tag_encoding(self, sequence):
         return [self.tag2index[tag] for tag in sequence]
 
 
+class ShufflerComponent:
+
+    def get_shuffled_data(self):
+        perm = permutation(len(self))
+        for idx in perm:
+            yield self[idx]
