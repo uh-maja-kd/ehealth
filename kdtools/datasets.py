@@ -585,3 +585,24 @@ class JointModelDataset(
 
     def __getitem__(self, index):
         return self.data[index]
+    @property
+    def no_postags(self):
+        return len(self.postags)
+    @property
+    def no_dependencies(self):
+        return len(self.dependencies)
+    @property
+    def no_chars(self):
+        return len(self.abc)
+    @property
+    def no_positions(self):
+        return self.no_positions
+    @property
+    def no_entity_types(self):
+        return len(self.entity_types)
+    @property
+    def no_entity_tags(self):
+        return len(self.entity_tags)
+    @property
+    def no_relations(self):
+        return len(self.relations)

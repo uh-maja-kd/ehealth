@@ -12,7 +12,8 @@ from kdtools.datasets import (
     SimpleWordIndexDataset,
     RelationsDependencyParseActionsDataset,
     RelationsEmbeddingDataset,
-    SentenceEmbeddingDataset
+    SentenceEmbeddingDataset,
+    JointModelDataset
 )
 from kdtools.models import (
     BiLSTMDoubleDenseOracleParser,
@@ -249,12 +250,13 @@ class JointModel(Algorithm):
         train_config = builder.parse_config('./configs/config_Train_JointModel.json')
 
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
-        dataset = NoEstaHechoDataset(collection, wv)
+        dataset = JointModelDataset(collection, wv)
 
         self.model = BERT_TreeLSTM_BiLSTM_CNN_JointModel(
             dataset.embedding_size,
             wv,
-            dataset.bert_size,
+            0,
+            # dataset.bert_size,
             dataset.no_postags,
             model_config.postag_size,
             dataset.no_dependencies,
