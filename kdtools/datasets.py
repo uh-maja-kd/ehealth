@@ -541,6 +541,8 @@ class JointModelDataset(
             total_relations = len(self.relations)
 
             for idx in range(sent_len):
+                position_data = torch.tensor(self.get_position_encoding(sent_len, idx), dtype=torch.long)
+
                 if len(head_words[idx]) > 0:
                     token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
 
@@ -560,29 +562,20 @@ class JointModelDataset(
 
                     relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
 
-                    data.append((
-                        word_embedding_data,
-                        char_embedding_data,
-                        postag_data,
-                        dependency_data,
-                        dependencytree_data,
-                        token_label,
-                        sentence_labels,
-                        relation_matrix))
-
                 else:
                     token_label, sentence_labels, relation_matrix = self._get_false_data(sent_len)
 
-                    data.append((
-                        word_embedding_data,
-                        char_embedding_data,
-                        postag_data,
-                        dependency_data,
-                        dependencytree_data,
-                        token_label,
-                        sentence_labels,
-                        relation_matrix)
-                    )
+                data.append((
+                    word_embedding_data,
+                    char_embedding_data,
+                    postag_data,
+                    dependency_data,
+                    position_data,
+                    dependencytree_data,
+                    token_label,
+                    sentence_labels,
+                    relation_matrix)
+                )
 
         return data
 
