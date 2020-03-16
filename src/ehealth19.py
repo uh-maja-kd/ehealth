@@ -319,15 +319,30 @@ class JointModel(Algorithm):
                 optimizer.step()
 
                 model.eval()
-                #include diagnostics code
+                #entity type
+                predicted_entity_type = torch.argmax(out_ent_type, -1)
+                correct_ent_type += int(predicted_entity_type == y_ent_type)
+
+                #entity tags
+                correct_ent_tags += sum(torch.tensor(out_ent_tag) == y).item()
+                total_tags += len(predicted)
+
+                #relations
+                #[1,sent_len, rels]
+                predicted_rels = (out_rels.squeeze() > model_config.relations_threshold).type(dtype=torch.long)
+                for predicted, gold in zip(predicted_rels.flatten(), y_rels.flatten()):
+                    true_positive_rels += int(gold == predicted  == 1)
+                    true_negative_rels += (gold == 1 and predicted == 1)
+                    false_positive_rels += (gold == 0 and predicted == 1)
+
 
             print(f"[{epoch + 1}] ent_type_loss: {loss_ent_type / len(dataset) :0.3}")
             print(f"[{epoch + 1}] ent_tag_loss: {loss_ent_tag / len(dataset) :0.3}")
             print(f"[{epoch + 1}] rels_loss: {running_loss_rels / len(dataset) :0.3}")
-            # print(f"[{epoch + 1}] ent_type_acc: {correct_ent_type / len(dataset) :0.3}")
-            # print(f"[{epoch + 1}] ent_tag_acc: {correct_ent_tags / total_tags :0.3}")
-            # print(f"[{epoch + 1}] rels_precision: {true_positive_rels / (true_positive_rels+true_negative_rels) :0.3}")
-            # print(f"[{epoch + 1}] rels_recovery: {true_positive_rels / (true_positive_rels+false_positive_rels) :0.3}")
+            print(f"[{epoch + 1}] ent_type_acc: {correct_ent_type / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] ent_tag_acc: {correct_ent_tags / total_tags :0.3}")
+            print(f"[{epoch + 1}] rels_precision: {true_positive_rels / (true_positive_rels+true_negative_rels) :0.3}")
+            print(f"[{epoch + 1}] rels_recovery: {true_positive_rels / (true_positive_rels+false_positive_rels) :0.3}")
 
 
 
