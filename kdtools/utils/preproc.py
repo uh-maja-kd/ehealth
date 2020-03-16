@@ -206,10 +206,10 @@ class PositionComponent:
     def get_position_encoding(self, no_words, index):
         return [i - index + self.max_sent_len for i in range(no_words)]
 
-class EntityTagsComponent:
+class EntityTypesComponent:
     def __init__(self):
 
-        self.tags = [
+        self.entity_types = [
             "Concept",
             "Action",
             "Reference",
@@ -217,10 +217,10 @@ class EntityTagsComponent:
             "<None>"
         ]
 
-        self.tag2index = {tag: idx for (idx, tag) in enumerate(self.tags)}
+        self.type2index = {type: idx for (idx, type) in enumerate(self.entity_types)}
 
-    def get_tag_encoding(self, sequence):
-        return [self.tag2index[tag] for tag in sequence]
+    def get_type_encoding(self, sequence):
+        return [self.type2index[type] for type in sequence]
 
 
 class ShufflerComponent:
@@ -230,7 +230,7 @@ class ShufflerComponent:
         for idx in perm:
             yield self[idx]
 
-class BMEWOVLabelsComponent:
+class BMEWOVTagsComponent:
     def __init__(self):
-        self.labels = ["B", "M", "E", "W", "O", "V"]
-        self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}
+        self.entity_tags = ["B", "M", "E", "W", "O", "V"]
+        self.tag2index = {tag: idx for (idx, tag) in enumerate(self.entity_tags)}

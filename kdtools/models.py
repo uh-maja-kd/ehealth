@@ -357,14 +357,14 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         position_embeddings = self.position_embedding(position_inputs)
         dependency_embeddings = self.position_embedding(dependency_inputs)
 
-        print(
-            # "bert_embeddings: ", bert_embeddings.shape, "\n",
-            "word_embeddings: ", word_embeddings.shape, "\n",
-            "char_embeddings: ", char_embeddings.shape, "\n",
-            "postag_embeddings: ", postag_embeddings.shape, "\n",
-            "position_embeddings: ", position_embeddings.shape, "\n",
-            "dependency_embeddings: ", dependency_embeddings.shape, "\n"
-        )
+        # print(
+        #     # "bert_embeddings: ", bert_embeddings.shape, "\n",
+        #     "word_embeddings: ", word_embeddings.shape, "\n",
+        #     "char_embeddings: ", char_embeddings.shape, "\n",
+        #     "postag_embeddings: ", postag_embeddings.shape, "\n",
+        #     "position_embeddings: ", position_embeddings.shape, "\n",
+        #     "dependency_embeddings: ", dependency_embeddings.shape, "\n"
+        # )
 
         inputs = torch.cat(
             (
@@ -376,9 +376,9 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
                 dependency_embeddings
             ), dim=-1)
 
-        print(
-            "inputs: ", inputs.shape, "\n"
-        )
+        # print(
+        #     "inputs: ", inputs.shape, "\n"
+        # )
 
         #encoding those inputs
         local_bilstm_encoding, _ = self.word_bilstm(inputs)
@@ -386,12 +386,12 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         local_deptree_encoding = torch.cat([self.tree_lstm(tree, inputs.squeeze(0))[1] for tree in trees], dim=0).unsqueeze(0)
         global_cnn_encoding = F.max_pool1d(self.sentence_cnn(inputs.permute(0,2,1)), sent_len).permute(0,2,1)
 
-        print(
-            "local_bilstm_encoding: ", local_bilstm_encoding.shape, "\n",
-            "local_cnn_encoding: ", local_cnn_encoding.shape, "\n",
-            "local_deptree_encoding: ", local_deptree_encoding.shape, "\n",
-            "global_cnn_encoding: ", global_cnn_encoding.shape, "\n"
-        )
+        # print(
+        #     "local_bilstm_encoding: ", local_bilstm_encoding.shape, "\n",
+        #     "local_cnn_encoding: ", local_cnn_encoding.shape, "\n",
+        #     "local_deptree_encoding: ", local_deptree_encoding.shape, "\n",
+        #     "global_cnn_encoding: ", global_cnn_encoding.shape, "\n"
+        # )
 
         #and putting all of them together
         tokens_info = torch.cat(
@@ -407,11 +407,11 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         #expanding global info
         global_info = global_cnn_encoding.expand(-1, sent_len, -1)
 
-        print(
-            "tokens_info: ", tokens_info.shape, "\n",
-            "pointed_token_info: ", pointed_token_info.shape, "\n",
-            "global_info: ", global_info.shape, "\n"
-        )
+        # print(
+        #     "tokens_info: ", tokens_info.shape, "\n",
+        #     "pointed_token_info: ", pointed_token_info.shape, "\n",
+        #     "global_info: ", global_info.shape, "\n"
+        # )
 
         #finals inputs are a concatenation of token's info, highlighted token's info and global info
         sentence_encoding = torch.cat(
@@ -422,12 +422,16 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
             ), dim=-1)
         sentence_encoding = self.dropout(sentence_encoding)
 
-        print(
-            "sentence_encoding: ", sentence_encoding.shape, "\n"
-        )
+        # print(
+        #     "sentence_encoding: ", sentence_encoding.shape, "\n"
+        # )
 
         #output entity type
-        entitytype_output = F.softmax(self.entity_type_decoder(sentence_encoding), dim = -1)
+        sentence_one_vector = F.max_pool1d(sentence_encoding.permute(0,2,1), sent_len).permute(0,2,1).squeeze(0)
+        # print(
+        #     "sentence_one_vector: ", sentence_one_vector.shape, "\n"
+        # )
+        entitytype_output = F.softmax(self.entity_type_decoder(sentence_one_vector), dim = -1)
 
         #output entities
         _, entities_output = self.entities_crf_decoder(sentence_encoding)
@@ -435,11 +439,11 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         #output relations
         relations_output = torch.sigmoid(self.relations_decoder(sentence_encoding))
 
-        print(
-            "entitytype_output: ", entitytype_output.shape, "\n",
-            "entities_output: ", len(entities_output), "\n",
-            "relations_output: ", relations_output.shape, "\n"
-        )
+        # print(
+        #     "entitytype_output: ", entitytype_output.shape, "\n",
+        #     "entities_output: ", len(entities_output), "\n",
+        #     "relations_output: ", relations_output.shape, "\n"
+        # )
 
-        return entitytype_output, entities_output, relations_output
+        return sentence_encoding, entitytype_output, entities_output, relations_output
 

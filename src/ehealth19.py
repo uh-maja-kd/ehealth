@@ -246,6 +246,7 @@ class JointModel(Algorithm):
         pass
 
     def train(self, collection: Collection):
+        builder = ConfigBuilder()
         model_config = builder.parse_config('./configs/config_JointModel.json')
         train_config = builder.parse_config('./configs/config_Train_JointModel.json')
 
@@ -278,14 +279,14 @@ class JointModel(Algorithm):
         )
 
         optimizer = optim.Adam(
-            model.parameters(),
+            self.model.parameters(),
             lr=train_config.optimizer.lr,
         )
 
         ent_type_criterion = CrossEntropyLoss()
         rels_criterion = MSELoss()
 
-        for epoch in train_config.epochs:
+        for epoch in range(train_config.epochs):
             #log variables
             running_loss_ent_type = 0
             running_ent_loss_ent_tag = 0
@@ -298,19 +299,40 @@ class JointModel(Algorithm):
             false_positive_rels = 0
 
 
-            for data in dataset:
+            for data in tqdm(dataset):
                 * X, y_ent_type, y_ent_tag, y_rels = data
+                y_rels = y_rels.unsqueeze(0)
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    position_inputs,
+                    trees,
+                    pointed_token_idx
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    position_inputs.unsqueeze(0),
+                    trees,
+                    pointed_token_idx
+                )
 
                 optimizer.zero_grad()
-                model.train()
+                self.model.train()
 
-                out_ent_type, out_ent_tag, out_rels = model(X)
+                sentence_features, out_ent_type, out_ent_tag, out_rels = self.model(X)
 
                 loss_ent_type = ent_type_criterion(out_ent_type, y_ent_type)
                 running_loss_ent_type += loss_ent_type.item()
                 loss_ent_type.backward(retain_graph=True)
 
-                loss_ent_tag = model.entities_crf_decoder.neg_log_likelihood(out_ent_tag, y_ent_tag)
+                loss_ent_tag = self.model.entities_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
                 running_ent_loss_ent_tag += loss_ent_tag.item()
                 loss_ent_tag.backward(retain_graph=True)
 
@@ -320,14 +342,14 @@ class JointModel(Algorithm):
 
                 optimizer.step()
 
-                model.eval()
+                self.model.eval()
                 #entity type
                 predicted_entity_type = torch.argmax(out_ent_type, -1)
                 correct_ent_type += int(predicted_entity_type == y_ent_type)
 
                 #entity tags
-                correct_ent_tags += sum(torch.tensor(out_ent_tag) == y).item()
-                total_tags += len(predicted)
+                correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+                total_tags += len(out_ent_tag)
 
                 #relations
                 #[1,sent_len, rels]

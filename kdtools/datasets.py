@@ -408,9 +408,9 @@ class JointModelDataset(
     PositionComponent,
     DependencyComponent,
     DependencyTreeComponent,
-    EntityTagsComponent,
+    EntityTypesComponent,
     RelationComponent,
-    BMEWOVLabelsComponent,
+    BMEWOVTagsComponent,
     ShufflerComponent):
 
     def __init__(self, collection: Collection, wv):
@@ -422,9 +422,9 @@ class JointModelDataset(
         PositionComponent.__init__(self, max([len(self.get_spans(sentence.text)) for sentence in collection.sentences]))
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
-        EntityTagsComponent.__init__(self)
+        EntityTypesComponent.__init__(self)
         RelationComponent.__init__(self)
-        BMEWOVLabelsComponent.__init__(self)
+        BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
 
         self.dataxsentence = self._get_sentences_data(collection)
@@ -516,11 +516,11 @@ class JointModelDataset(
         return None
 
     def _get_false_data(self, sent_len):
-        token_label = torch.tensor(self.get_tag_encoding(['<None>']), dtype=torch.long)
-        sentence_label = torch.tensor([self.label2index['O'] for _ in range(sent_len)], dtype=torch.long)
-        relation_matrix = torch.tensor([[0 for _ in range(sent_len)] for _ in range(len(self.relations))], dtype=torch.float32)
+        token_label = torch.tensor(self.get_type_encoding(['<None>']), dtype=torch.long)
+        sentence_tags = torch.tensor([self.tag2index['O'] for _ in range(sent_len)], dtype=torch.long)
+        relation_matrix = torch.tensor([[0 for _ in range(len(self.relations))] for _ in range(sent_len)], dtype=torch.float32)
 
-        return (token_label, sentence_label, relation_matrix)
+        return (token_label, sentence_tags, relation_matrix)
 
     def get_data(self):
         data = []
@@ -544,26 +544,26 @@ class JointModelDataset(
                 position_data = torch.tensor(self.get_position_encoding(sent_len, idx), dtype=torch.long)
 
                 if len(head_words[idx]) > 0:
-                    token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
+                    token_label = torch.tensor(self.get_type_encoding([head_words[idx][0].label]), dtype=torch.long)
 
                     entities_spans = [kp.spans for kp in head_words[idx]]
-                    sentence_labels = BMEWOV.encode(spans, entities_spans)
-                    sentence_labels = torch.tensor([self.label2index[label] for label in sentence_labels], dtype = torch.long)
+                    sentence_tags = BMEWOV.encode(spans, entities_spans)
+                    sentence_tags = torch.tensor([self.tag2index[tag] for tag in sentence_tags], dtype = torch.long)
 
                     words = [sentence.text[start:end] for (start,end) in spans]
 
-                    relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
+                    relation_matrix = [[0 for _ in range(len(self.relations))] for _ in range(sent_len)]
 
                     for dest_idx in range(sent_len):
                         for orig, dest in product(head_words[idx], head_words[dest_idx]):
                             relations = sentence.find_relations(orig.id, dest.id)
                             for relation in relations:
-                                relation_matrix[self.relation2index[relation.label]][dest_idx] = 1
+                                relation_matrix[dest_idx][self.relation2index[relation.label]] = 1
 
-                    relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
+                    relation_matrix = torch.tensor(relation_matrix, dtype=torch.float32)
 
                 else:
-                    token_label, sentence_labels, relation_matrix = self._get_false_data(sent_len)
+                    token_label, sentence_tags, relation_matrix = self._get_false_data(sent_len)
 
                 data.append((
                     word_embedding_data,
@@ -574,7 +574,7 @@ class JointModelDataset(
                     dependencytree_data,
                     idx,
                     token_label,
-                    sentence_labels,
+                    sentence_tags,
                     relation_matrix)
                 )
 
@@ -585,6 +585,11 @@ class JointModelDataset(
 
     def __getitem__(self, index):
         return self.data[index]
+
+
+    @property
+    def embedding_size(self):
+        return self.word_vector_size
     @property
     def no_postags(self):
         return len(self.postags)
@@ -594,9 +599,6 @@ class JointModelDataset(
     @property
     def no_chars(self):
         return len(self.abc)
-    @property
-    def no_positions(self):
-        return self.no_positions
     @property
     def no_entity_types(self):
         return len(self.entity_types)
