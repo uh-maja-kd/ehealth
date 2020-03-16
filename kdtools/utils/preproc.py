@@ -55,7 +55,7 @@ class CharEmbeddingComponent:
         self.char2int = {char: index for index,char in self.int2char.items()}
         #print(self.abc)
 
-    def encode(self, word, max_word_len, sent_len):
+    def encode_chars_indices(self, word, max_word_len, sent_len):
         #print(word)
         #print(max_word_len)
         solve = [self.char2int[char] for char in word]
@@ -147,9 +147,6 @@ class RelationComponent(SpacyComponent):
         ]
         self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
 
-    def get_sentence_relations(self, sentence):
-        pass
-
 class DependencyComponent(SpacyComponent):
     def __init__(self):
         super(SpacyComponent).__init__()
@@ -209,7 +206,7 @@ class PositionComponent:
     def get_position_encoding(self, no_words, index):
         return [i - index + self.max_sent_len for i in range(no_words)]
 
-class EntityComponent:
+class EntityTagsComponent:
     def __init__(self):
 
         self.tags = [
@@ -232,3 +229,8 @@ class ShufflerComponent:
         perm = permutation(len(self))
         for idx in perm:
             yield self[idx]
+
+class BMEWOVLabelsComponent:
+    def __init__(self):
+        self.labels = ["B", "M", "E", "W", "O", "V"]
+        self.label2index = {label: idx for (idx, label) in enumerate(self.labels)}

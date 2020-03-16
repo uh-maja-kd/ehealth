@@ -9,6 +9,7 @@ from functools import reduce
 from kdtools.utils.bmewov import BMEWOV
 from kdtools.utils.preproc import *
 from kdtools.utils.model_helpers import Tree
+from itertools import product
 
 class Node:
     def __init__(self):
@@ -407,10 +408,13 @@ class JointModelDataset(
     PositionComponent,
     DependencyComponent,
     DependencyTreeComponent,
-    EntityComponent,
-    RelationComponent):
+    EntityTagsComponent,
+    RelationComponent,
+    BMEWOVLabelsComponent,
+    ShufflerComponent):
 
     def __init__(self, collection: Collection, wv):
+        print("Loading nlp...")
         TokenizerComponent.__init__(self)
         EmbeddingComponent.__init__(self, wv)
         CharEmbeddingComponent.__init__(self, [sentence.text for sentence in collection.sentences])
@@ -418,20 +422,22 @@ class JointModelDataset(
         PositionComponent.__init__(self, max([len(self.get_spans(sentence.text)) for sentence in collection.sentences]))
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
-        EntityComponent.__init__(self)
+        EntityTagsComponent.__init__(self)
         RelationComponent.__init__(self)
+        BMEWOVLabelsComponent.__init__(self)
+        ShufflerComponent.__init__(self)
 
-        #self.raw_positive_data = self._get_raw_positive_data(collection)
         self.dataxsentence = self._get_sentences_data(collection)
-        #self.data = self._get_data()
+        self.data = self.get_data()
 
     def _get_sentences_data(self, collection):
         data = []
-        for sentence in collection.sentences:
+        print("Collecting data per sentence...")
+        for sentence in tqdm(collection.sentences):
             spans = self.get_spans(sentence.text)
             words = [sentence.text[beg:end] for (beg, end) in spans]
 
-            word_embedding_data = self._get_word_embedding_data(words) 
+            word_embedding_data = self._get_word_embedding_data(words)
             char_embedding_data = self._get_char_embedding_data(words)
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
@@ -472,8 +478,8 @@ class JointModelDataset(
 
     def _get_char_embedding_data(self, words):
         max_word_len = max([len(word) for word in words])
-        return one_hot(torch.tensor([CharEmbeddingComponent.encode(self, word, max_word_len, len(words)) for word in words], dtype=torch.long)
-                        .type(dtype = torch.float32), len(self.abc))
+        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
+        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
@@ -509,24 +515,17 @@ class JointModelDataset(
 
         return None
 
-    def _get_relation_with_kp_as_target(self, kp, relations):
-
-        for relation in relations:
-            if relation.destination == kp.id:
-                return relation.label
-
-        return False
-
     def _get_false_data(self, sent_len):
         token_label = torch.tensor(self.get_tag_encoding(['<None>']), dtype=torch.long)
-        sentence_label = torch.tensor(['O' for _ in range(sent_len)], dtype=torch.long)
-        relation_matrix = torch.tensor([[0 for _ in range(sent_len)] for _ in range(len(self.relations))], dtype=torch.long)
+        sentence_label = torch.tensor([self.label2index['O'] for _ in range(sent_len)], dtype=torch.long)
+        relation_matrix = torch.tensor([[0 for _ in range(sent_len)] for _ in range(len(self.relations))], dtype=torch.float32)
 
         return (token_label, sentence_label, relation_matrix)
 
     def get_data(self):
         data = []
-        for sent_data in self.dataxsentence:
+        print("Creating dataset...")
+        for sent_data in tqdm(self.dataxsentence):
             (
                 sentence,
                 spans,
@@ -545,19 +544,19 @@ class JointModelDataset(
                 if len(head_words[idx]) > 0:
                     token_label = torch.tensor(self.get_tag_encoding([head_words[idx][0].label]), dtype=torch.long)
 
-                    entities_spans = [kp.spans for kp in sentence.keyphrases]
-                    sentence_labels = BMEWOV.encode(spans, entities_spans), dtype=torch.long
+                    entities_spans = [kp.spans for kp in head_words[idx]]
+                    sentence_labels = BMEWOV.encode(spans, entities_spans)
+                    sentence_labels = torch.tensor([self.label2index[label] for label in sentence_labels], dtype = torch.long)
 
                     words = [sentence.text[start:end] for (start,end) in spans]
 
-                    #relation_matrix = {i : {self.relation2index[relation] : 0 for relation in self.relations} for i in range(sent_len)}
                     relation_matrix = [[0 for _ in range(sent_len)] for _ in range(len(self.relations))]
 
-                    for kp in head_words[idx]:
-                        relation = self._get_relation_with_kp_as_target(kp, sentence.relations)
-                        if relation:
-                            #print("Put relation")
-                            relation_matrix[self.relation2index[relation]][idx] = 1
+                    for dest_idx in range(sent_len):
+                        for orig, dest in product(head_words[idx], head_words[dest_idx]):
+                            relations = sentence.find_relations(orig.id, dest.id)
+                            for relation in relations:
+                                relation_matrix[self.relation2index[relation.label]][dest_idx] = 1
 
                     relation_matrix = torch.tensor(relation_matrix, dtype=torch.long)
 
@@ -591,4 +590,4 @@ class JointModelDataset(
         return len(self.data)
 
     def __getitem__(self, index):
-        data = self.data[index]
+        return self.data[index]
