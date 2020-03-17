@@ -631,7 +631,7 @@ class DependencyJointModelDataset(
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
         EntityTypesComponent.__init__(self)
-        RelationComponent.__init__(self)
+        RelationComponent.__init__(self, include_none = True)
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
 
@@ -752,13 +752,29 @@ class DependencyJointModelDataset(
 
             sentence_labels = torch.tensor([self.type2index[list(labels.items())[0][0]] for labels in entities_labels_data])
 
+            entity_heads = {}
+            for i, entities in enumerate(head_words):
+                for entity in entities:
+                    entity_heads[entity.id] = i
+
+            relations = [
+                (
+                    entity_heads[relation.origin],
+                    entity_heads[relation.destination],
+                    torch.LongTensor([self.relation2index[relation.label]])
+                )
+                for relation in sentence.relations \
+                    if relation.origin in entity_heads and relation.destination in entity_heads
+            ]
+
             data.append((
                 word_embedding_data,
                 char_embedding_data,
                 dependency_data,
                 dependencytree_data,
                 sentence_labels,
-                sentence_tags
+                sentence_tags,
+                relations
             ))
 
         return data
