@@ -417,10 +417,12 @@ class DependencyJointAlgorithm(Algorithm):
         self.model = DependencyJointModel(
             dataset.embedding_size,
             wv,
-            dataset.no_dependencies,
-            model_config.dependency_size,
             dataset.no_chars,
             model_config.charencoding_size,
+            dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
             model_config.tree_lstm_hidden_size,
             model_config.bilstm_hidden_size,
             model_config.dropout_chance,
@@ -459,9 +461,7 @@ class DependencyJointAlgorithm(Algorithm):
 
                 X = (
                     word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    trees,
+                    char_inputs.unsqueeze(0)
                 )
 
                 optimizer.zero_grad()
@@ -492,9 +492,7 @@ class DependencyJointAlgorithm(Algorithm):
 
                 X = (
                     word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    trees,
+                    char_inputs.unsqueeze(0)
                 )
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
@@ -520,9 +518,7 @@ class DependencyJointAlgorithm(Algorithm):
 
                 X = (
                     word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    trees,
+                    char_inputs.unsqueeze(0)
                 )
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
