@@ -13,13 +13,15 @@ from kdtools.datasets import (
     RelationsDependencyParseActionsDataset,
     RelationsEmbeddingDataset,
     SentenceEmbeddingDataset,
-    JointModelDataset
+    JointModelDataset,
+    DependencyJointModelDataset
 )
 from kdtools.models import (
     BiLSTMDoubleDenseOracleParser,
     EmbeddingAttentionBiLSTM_CRF,
     EmbeddingBiLSTM_CRF,
-    BERT_TreeLSTM_BiLSTM_CNN_JointModel
+    BERT_TreeLSTM_BiLSTM_CNN_JointModel,
+    DependencyJointModel
 )
 from kdtools.utils.bmewov import BMEWOV
 
@@ -396,6 +398,150 @@ class JointModel(Algorithm):
             else:
                 print("No positive relations")
 
+class DependencyJointAlgorithm(Algorithm):
+
+    def __init__(self):
+        self.model = None
+
+    def run(self, collection: Collection):
+        pass
+
+    def train(self, collection: Collection):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/config_DependencyJointModel.json')
+        train_config = builder.parse_config('./configs/config_Train_DependencyJointModel.json')
+
+        wv = Word2VecKeyedVectors.load(model_config.embedding_path)
+        dataset = DependencyJointModelDataset(collection, wv)
+
+        self.model = DependencyJointModel(
+            dataset.embedding_size,
+            wv,
+            dataset.no_dependencies,
+            model_config.dependency_size,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            model_config.tree_lstm_hidden_size,
+            model_config.bilstm_hidden_size,
+            model_config.dropout_chance,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+            dataset.no_relations
+        )
+
+        optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_ent_type = 0
+            running_loss_ent_tag = 0
+            train_correct_ent_types = 0
+            train_correct_ent_tags = 0
+            train_total_words = 0
+            val_correct_ent_types = 0
+            val_correct_ent_tags = 0
+            val_total_words = 0
+
+            self.model.train()
+            print("Optimizing...")
+            for data in tqdm(dataset[:800]):
+                * X, y_ent_type, y_ent_tag = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                )
+
+                optimizer.zero_grad()
+
+                sentence_features, out_ent_type, out_ent_tag = self.model(X)
+
+                loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                running_loss_ent_type += loss_ent_type.item()
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = self.model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                running_loss_ent_tag += loss_ent_tag.item()
+                loss_ent_tag.backward()
+
+                optimizer.step()
+
+            self.model.eval()
+            print("Evaluating on training data...")
+            for data in tqdm(dataset[:800]):
+                * X, y_ent_type, y_ent_tag = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                )
+
+                sentence_features, out_ent_type, out_ent_tag = self.model(X)
+
+                #entity type
+                train_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+                #entity tags
+                train_correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+                train_total_words += len(out_ent_tag)
+
+            print("Evaluating on validation data...")
+            for data in tqdm(dataset[800:]):
+                * X, y_ent_type, y_ent_tag = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                )
+
+                sentence_features, out_ent_type, out_ent_tag = self.model(X)
+
+                #entity type
+                val_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+                #entity tags
+                val_correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+                val_total_words += len(out_ent_tag)
+
+
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+            print(f"[{epoch + 1}] train_ent_type_acc: {train_correct_ent_types / train_total_words :0.3}")
+            print(f"[{epoch + 1}] train_ent_tag_acc: {train_correct_ent_tags / train_total_words :0.3}")
+            print(f"[{epoch + 1}] val_ent_type_acc: {val_correct_ent_types / val_total_words :0.3}")
+            print(f"[{epoch + 1}] val_ent_tag_acc: {val_correct_ent_tags / val_total_words :0.3}")
 
 
 
