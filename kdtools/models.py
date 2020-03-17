@@ -454,10 +454,12 @@ class DependencyJointModel(nn.Module):
         self,
         embedding_size,
         wv,
-        no_dependencies,
-        dependency_size,
         no_chars,
         charencoding_size,
+        no_dependencies,
+        dependency_size,
+        entity_type_size,
+        entity_tag_size,
         tree_lstm_hidden_size,
         bilstm_hidden_size,
         dropout_chance,
@@ -476,15 +478,8 @@ class DependencyJointModel(nn.Module):
         #Char Embedding layer
         self.char_embedding = CharCNN(1, no_chars, charencoding_size)
 
-        #Dependency Embedding layer
-        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
-
-
         #Word-encoding BiLSTM
         self.word_bilstm = BiLSTM(embedding_size + charencoding_size, bilstm_hidden_size//2, return_sequence=True)
-
-        #DependencyTree-enconding TreeLSTM
-        self.tree_lstm = ChildSumTreeLSTM(bilstm_hidden_size + dependency_size, tree_lstm_hidden_size)
 
         #OUTPUT
         self.dropout = nn.Dropout(dropout_chance)
@@ -496,29 +491,27 @@ class DependencyJointModel(nn.Module):
         self.entities_tags_crf_decoder = CRF(bilstm_hidden_size, no_entity_tags)
 
         #Relations
-        self.relations_decoder = nn.Linear(tree_lstm_hidden_size, no_relations)
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
 
-    def forward(self, X):
+        tree_lstm_input_size = entity_type_size + entity_tag_size + bilstm_hidden_size + dependency_size
+        self.tree_lstm = ChildSumTreeLSTM(tree_lstm_input_size, tree_lstm_hidden_size)
+
+        self.relations_decoder = nn.Linear(2*tree_lstm_hidden_size, no_relations)
+
+    def forward(self, X, relation=False):
+        return self.relation_forward(X) if relation else self.entities_forward(X)
+
+    def entities_forward(self, X):
         (
             word_inputs,
-            char_inputs,
-            dependency_inputs,
-            trees
+            char_inputs
         ) = X
-
-        # bert_embeddings, word_inputs, char_embeddings, postag_inputs, position_inputs, trees, pointed_token_idx = X
-        sent_len = len(trees)
 
         #obtaining embeddings vectors
         word_embeddings = self.word_embedding(word_inputs)
         char_embeddings = self.char_embedding(char_inputs)
-        dependency_embeddings = self.dependency_embedding(dependency_inputs)
-
-        # print(
-        #     "word_embeddings: ", word_embeddings.shape, "\n",
-        #     "char_embeddings: ", char_embeddings.shape, "\n",
-        #     "dependency_embeddings: ", dependency_embeddings.shape, "\n"
-        # )
 
         bilstm_inputs = torch.cat(
             (
@@ -526,18 +519,10 @@ class DependencyJointModel(nn.Module):
                 char_embeddings,
             ), dim=-1)
 
-        # print(
-        #     "bilstm_inputs: ", bilstm_inputs.shape, "\n"
-        # )
-
         #encoding those inputs
         bilstm_encoding, _ = self.word_bilstm(bilstm_inputs)
 
-        # print(
-        #     "bilstm_encoding: ", bilstm_encoding.shape, "\n"
-        # )
-
-        #NON-SHARED-REGION
+        #OUTPUTS
 
         #entity-types
         _, entities_types_output = self.entities_types_crf_decoder(bilstm_encoding)
@@ -545,8 +530,55 @@ class DependencyJointModel(nn.Module):
         #entity-tags
         _, entities_tags_output = self.entities_tags_crf_decoder(bilstm_encoding)
 
-         #relations
-        # local_deptree_encoding = torch.cat([self.tree_lstm(tree, inputs.squeeze(0))[1] for tree in trees], dim=0).unsqueeze(0)
-
         return bilstm_encoding, entities_types_output, entities_tags_output
+
+    def relation_forward(self, X):
+        (
+            bi_lstm_encoding,
+            entities_types_output,
+            entities_tags_output,
+            dependency_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+        #OUTPUS
+
+        entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
+        entities_tags_inputs = torch.tensor(entities_tags_output, dtype = torch.long).unsqueeze(0)
+
+        print(
+            "entities_types_inputs ", entities_types_inputs.shape, "\n",
+            "entities_tags_inputs ", entities_tags_inputs.shape, "\n"
+        )
+
+        entities_types_embeddings = self.entity_type_embedding(entities_types_inputs)
+        entities_tags_embeddings = self.entity_tag_embedding(entities_tags_inputs)
+        dependency_embeddings = self.dependency_embedding(dependency_inputs)
+
+        print(
+            "bi_lstm_encoding ", bi_lstm_encoding.shape, "\n",
+            "entities_types_embeddings ", entities_types_embeddings.shape, "\n",
+            "entities_tags_embeddings ", entities_tags_embeddings.shape, "\n",
+            "dependency_embeddings ", dependency_embeddings.shape, "\n"
+        )
+
+        tree_lstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim = -1)
+
+        origin_tree_encoding = self.tree_lstm(trees[origin], tree_lstm_inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm(trees[destination], tree_lstm_inputs.squeeze(0))[1]
+
+        print(
+            "origin_tree_encoding ", origin_tree_encoding.shape, "\n",
+            "destination_tree_encoding ", destination_tree_encoding.shape, "\n"
+        )
+
+        relation_pair = torch.cat([origin_tree_encoding, destination_tree_encoding], dim = -1)
+
+        print(
+            "relation_pair ", relation_pair.shape, "\n",
+        )
+
+        return F.softmax(self.relations_decoder(relation_pair), dim = -1)
 
