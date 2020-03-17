@@ -289,7 +289,7 @@ class JointModel(Algorithm):
         for epoch in range(train_config.epochs):
             #log variables
             running_loss_ent_type = 0
-            running_ent_loss_ent_tag = 0
+            running_loss_ent_tag = 0
             running_loss_rels = 0
             correct_ent_type = 0
             correct_ent_tags = 0
@@ -333,7 +333,7 @@ class JointModel(Algorithm):
                 loss_ent_type.backward(retain_graph=True)
 
                 loss_ent_tag = self.model.entities_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
-                running_ent_loss_ent_tag += loss_ent_tag.item()
+                running_loss_ent_tag += loss_ent_tag.item()
                 loss_ent_tag.backward(retain_graph=True)
 
                 loss_rels = rels_criterion(out_rels, y_rels)
@@ -360,8 +360,8 @@ class JointModel(Algorithm):
                     false_positive_rels += (gold == 0 and predicted == 1)
 
 
-            print(f"[{epoch + 1}] ent_type_loss: {loss_ent_type / len(dataset) :0.3}")
-            print(f"[{epoch + 1}] ent_tag_loss: {loss_ent_tag / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / len(dataset) :0.3}")
             print(f"[{epoch + 1}] rels_loss: {running_loss_rels / len(dataset) :0.3}")
             print(f"[{epoch + 1}] ent_type_acc: {correct_ent_type / len(dataset) :0.3}")
             print(f"[{epoch + 1}] ent_tag_acc: {correct_ent_tags / total_tags :0.3}")
