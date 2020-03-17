@@ -324,10 +324,11 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         #OUTPUT
         self.dropout = nn.Dropout(dropout_chance)
 
-        sentence_features_size = 2 * (bilstm_hidden_size + local_cnn_channels + tree_lstm_hidden_size) + global_cnn_channels
+        tokens_features_size = bilstm_hidden_size + local_cnn_channels + tree_lstm_hidden_size
+        sentence_features_size = 2 * tokens_features_size + global_cnn_channels
 
         #Entity type
-        self.entity_type_decoder = nn.Linear(sentence_features_size, no_entity_types)
+        self.entity_type_decoder = nn.Linear(tokens_features_size + global_cnn_channels, no_entity_types)
 
         #Entites
         self.entities_crf_decoder = CRF(sentence_features_size, no_entity_tags)
@@ -427,7 +428,7 @@ class BERT_TreeLSTM_BiLSTM_CNN_JointModel(nn.Module):
         # )
 
         #output entity type
-        sentence_one_vector = F.max_pool1d(sentence_encoding.permute(0,2,1), sent_len).permute(0,2,1).squeeze(0)
+        sentence_one_vector = torch.cat([global_cnn_encoding.squeeze(0), tokens_info[:, pointed_token_idx,:]], dim = -1)
         # print(
         #     "sentence_one_vector: ", sentence_one_vector.shape, "\n"
         # )

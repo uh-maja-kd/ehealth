@@ -13,7 +13,7 @@ class SpacyComponent:
         self.nlp = SpacyComponent.nlp if SpacyComponent.nlp else spacy.load("es_core_news_md")
         SpacyComponent.nlp = self.nlp
 
-    @lru_cache()
+    @lru_cache(maxsize=200)
     def nlp_wrapper(self, sentence):
         return self.nlp(sentence)
 

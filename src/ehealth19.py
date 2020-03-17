@@ -298,7 +298,7 @@ class JointModel(Algorithm):
             true_negative_rels = 0
             false_positive_rels = 0
 
-
+            self.model.train()
             for data in tqdm(dataset):
                 * X, y_ent_type, y_ent_tag, y_rels = data
                 y_rels = y_rels.unsqueeze(0)
@@ -324,7 +324,6 @@ class JointModel(Algorithm):
                 )
 
                 optimizer.zero_grad()
-                self.model.train()
 
                 sentence_features, out_ent_type, out_ent_tag, out_rels = self.model(X)
 
@@ -342,7 +341,33 @@ class JointModel(Algorithm):
 
                 optimizer.step()
 
-                self.model.eval()
+            self.model.eval()
+            for data in tqdm(dataset):
+                * X, y_ent_type, y_ent_tag, y_rels = data
+                y_rels = y_rels.unsqueeze(0)
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    position_inputs,
+                    trees,
+                    pointed_token_idx
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    position_inputs.unsqueeze(0),
+                    trees,
+                    pointed_token_idx
+                )
+
+                sentence_features, out_ent_type, out_ent_tag, out_rels = self.model(X)
+
                 #entity type
                 predicted_entity_type = torch.argmax(out_ent_type, -1)
                 correct_ent_type += int(predicted_entity_type == y_ent_type)
@@ -355,18 +380,21 @@ class JointModel(Algorithm):
                 #[1,sent_len, rels]
                 predicted_rels = (out_rels.squeeze() > model_config.relations_threshold).type(dtype=torch.long)
                 for predicted, gold in zip(predicted_rels.flatten(), y_rels.flatten()):
-                    true_positive_rels += int(gold == predicted  == 1)
-                    true_negative_rels += (gold == 1 and predicted == 1)
-                    false_positive_rels += (gold == 0 and predicted == 1)
+                    true_positive_rels += int(gold == predicted == 1)
+                    true_negative_rels += int(gold == 1 and predicted == 0)
+                    false_positive_rels += int(gold == 0 and predicted == 1)
 
 
             print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / len(dataset) :0.3}")
-            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / len(dataset) :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / total_tags :0.3}")
             print(f"[{epoch + 1}] rels_loss: {running_loss_rels / len(dataset) :0.3}")
             print(f"[{epoch + 1}] ent_type_acc: {correct_ent_type / len(dataset) :0.3}")
             print(f"[{epoch + 1}] ent_tag_acc: {correct_ent_tags / total_tags :0.3}")
-            print(f"[{epoch + 1}] rels_precision: {true_positive_rels / (true_positive_rels+true_negative_rels) :0.3}")
-            print(f"[{epoch + 1}] rels_recovery: {true_positive_rels / (true_positive_rels+false_positive_rels) :0.3}")
+            if true_positive_rels > 0:
+                print(f"[{epoch + 1}] rels_recovery: {true_positive_rels / (true_positive_rels+true_negative_rels) :0.3}")
+                print(f"[{epoch + 1}] rels_precision: {true_positive_rels / (true_positive_rels+false_positive_rels) :0.3}")
+            else:
+                print("No positive relations")
 
 
 
