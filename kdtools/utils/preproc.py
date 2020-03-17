@@ -127,7 +127,7 @@ class PostagComponent(SpacyComponent):
 
 
 class RelationComponent(SpacyComponent):
-    def __init__(self):
+    def __init__(self, include_none = False):
         super().__init__()
 
         self.relations = [
@@ -145,6 +145,7 @@ class RelationComponent(SpacyComponent):
             "causes",
             "entails"
         ]
+        self.relations += ["none"] if include_none else []
         self.relation2index = {relation: self.relations.index(relation) for relation in self.relations}
 
 class DependencyComponent(SpacyComponent):
