@@ -50,16 +50,14 @@ class DependencyTreeComponent(SpacyComponent):
 
 
 class CharEmbeddingComponent:
-    def __init__(self, sentences):
-        self.abc = ['<pad>','<unk>']  + list(set(list(''.join(sentences))))
+    def __init__(self):
+        self.abc = ['<pad>','<unk>']  +  list(" \"%(),-./012345679:;ABCDEFGHIKLMNOPRSTUVXYZabcdefghijklmnopqrstuvwxyzÉáéíñóöú")
         self.int2char = dict(enumerate(self.abc))
         self.char2int = {char: index for index,char in self.int2char.items()}
-        #print(self.abc)
 
     def encode_chars_indices(self, word, max_word_len, sent_len):
-        #print(word)
-        #print(max_word_len)
-        solve = [self.char2int[char] for char in word]
+        solve = [self.char2int[char] if char in self.char2int else self.char2int['<unk>']\
+            for char in word]
         len_solve = len(solve)
         for i in range(max_word_len - len_solve):
             solve += [self.char2int['<pad>']]
