@@ -8,6 +8,8 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
+from numpy.random import permutation
+
 from kdtools.datasets import (
     SimpleWordIndexDataset,
     RelationsDependencyParseActionsDataset,
@@ -443,13 +445,16 @@ class DependencyJointAlgorithm(Algorithm):
             running_loss_ent_type = 0
             running_loss_ent_tag = 0
             running_loss_relations = 0
+            train_correct_relations = 0
             train_correct_ent_types = 0
             train_correct_ent_tags = 0
             train_total_words = 0
+            train_total_relations = 0
+            val_correct_relations = 0
             val_correct_ent_types = 0
             val_correct_ent_tags = 0
             val_total_words = 0
-            train_total_rels = 0
+            val_total_relations = 0
 
             self.model.train()
             print("Optimizing...")
@@ -472,8 +477,15 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
+                positive_rels = relations["pos"]
+                negative_rels = relations["neg"][:len(positive_rels)]
+                relations = permutation(positive_rels + negative_rels)
                 rels_loss = 0
                 for origin, destination, y_rel in relations:
+                    origin = int(origin)
+                    destination = int(destination)
+                    y_rel = torch.LongTensor([y_rel])
+
                     #positive direction
                     X = (
                         sentence_features,
@@ -489,7 +501,6 @@ class DependencyJointAlgorithm(Algorithm):
                     rel_loss = relations_criterion(out_rel, y_rel)
                     rel_loss.backward(retain_graph=True)
                     running_loss_relations += rel_loss.item()
-                    train_total_rels += 1
 
                 loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                 running_loss_ent_type += loss_ent_type.item()
@@ -520,6 +531,23 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
+                positive_rels = relations["pos"]
+                for origin, destination, y_rel in positive_rels:
+                    #positive direction
+                    X = (
+                        sentence_features,
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.model(X, relation=True)
+                    train_correct_relations += int(torch.argmax(out_rel) == y_rel)
+                    train_total_relations += 1
+
                 #entity type
                 train_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
 
@@ -546,6 +574,23 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
+                positive_rels = relations["pos"]
+                for origin, destination, y_rel in positive_rels:
+                    #positive direction
+                    X = (
+                        sentence_features,
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.model(X, relation=True)
+                    val_correct_relations += int(torch.argmax(out_rel) == y_rel)
+                    val_total_relations += 1
+
                 #entity type
                 val_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
 
@@ -555,11 +600,13 @@ class DependencyJointAlgorithm(Algorithm):
                 val_total_words += len(out_ent_tag)
 
 
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
             print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
             print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
-            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_rels :0.3}")
+            print(f"[{epoch + 1}] train_rels_acc: {train_correct_relations / train_total_relations :0.3}")
             print(f"[{epoch + 1}] train_ent_type_acc: {train_correct_ent_types / train_total_words :0.3}")
             print(f"[{epoch + 1}] train_ent_tag_acc: {train_correct_ent_tags / train_total_words :0.3}")
+            print(f"[{epoch + 1}] val_rels_acc: {val_correct_relations / val_total_relations :0.3}")
             print(f"[{epoch + 1}] val_ent_type_acc: {val_correct_ent_types / val_total_words :0.3}")
             print(f"[{epoch + 1}] val_ent_tag_acc: {val_correct_ent_tags / val_total_words :0.3}")
 

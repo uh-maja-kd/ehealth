@@ -757,7 +757,7 @@ class DependencyJointModelDataset(
                 for entity in entities:
                     entity_heads[entity.id] = i
 
-            relations = [
+            positive_relations = [
                 (
                     entity_heads[relation.origin],
                     entity_heads[relation.destination],
@@ -766,6 +766,16 @@ class DependencyJointModelDataset(
                 for relation in sentence.relations \
                     if relation.origin in entity_heads and relation.destination in entity_heads
             ]
+
+            paired_tokens = [(orig, dest) for orig, dest, _ in positive_relations]
+            indices = list(range(sent_len))
+            negative_relations = [(i, j, torch.LongTensor([self.relation2index['none']])) \
+                for i,j in list(product(indices, indices)) if (i,j) not in paired_tokens]
+
+            relations = {
+                "pos": positive_relations,
+                "neg": negative_relations
+            }
 
             data.append((
                 word_embedding_data,
