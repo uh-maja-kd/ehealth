@@ -456,9 +456,15 @@ class DependencyJointAlgorithm(Algorithm):
             val_total_words = 0
             val_total_relations = 0
 
+            shuffled_data = list(dataset.get_shuffled_data())
+            # shuffled_data = dataset
+            chop_idx = int(0.8*len(dataset))
+            train_data = shuffled_data[:chop_idx]
+            val_data = shuffled_data[chop_idx:]
+
             self.model.train()
             print("Optimizing...")
-            for data in tqdm(dataset[:800]):
+            for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations = data
 
                 (
@@ -514,7 +520,7 @@ class DependencyJointAlgorithm(Algorithm):
 
             self.model.eval()
             print("Evaluating on training data...")
-            for data in tqdm(dataset[:800]):
+            for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations = data
 
                 (
@@ -557,7 +563,7 @@ class DependencyJointAlgorithm(Algorithm):
                 train_total_words += len(out_ent_tag)
 
             print("Evaluating on validation data...")
-            for data in tqdm(dataset[800:]):
+            for data in tqdm(val_data):
                 * X, y_ent_type, y_ent_tag, relations = data
 
                 (
@@ -598,7 +604,6 @@ class DependencyJointAlgorithm(Algorithm):
                 val_correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
 
                 val_total_words += len(out_ent_tag)
-
 
             print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
             print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")

@@ -6,6 +6,7 @@ from string import ascii_lowercase
 from functools import lru_cache
 from torch.nn.functional import one_hot
 import numpy as np
+from numpy.random import permutation
 
 class SpacyComponent:
     nlp = None
