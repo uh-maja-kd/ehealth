@@ -543,42 +543,19 @@ class DependencyJointModel(nn.Module):
             destination
         ) = X
 
-        #OUTPUS
-
         entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
         entities_tags_inputs = torch.tensor(entities_tags_output, dtype = torch.long).unsqueeze(0)
-
-        print(
-            "entities_types_inputs ", entities_types_inputs.shape, "\n",
-            "entities_tags_inputs ", entities_tags_inputs.shape, "\n"
-        )
 
         entities_types_embeddings = self.entity_type_embedding(entities_types_inputs)
         entities_tags_embeddings = self.entity_tag_embedding(entities_tags_inputs)
         dependency_embeddings = self.dependency_embedding(dependency_inputs)
-
-        print(
-            "bi_lstm_encoding ", bi_lstm_encoding.shape, "\n",
-            "entities_types_embeddings ", entities_types_embeddings.shape, "\n",
-            "entities_tags_embeddings ", entities_tags_embeddings.shape, "\n",
-            "dependency_embeddings ", dependency_embeddings.shape, "\n"
-        )
 
         tree_lstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim = -1)
 
         origin_tree_encoding = self.tree_lstm(trees[origin], tree_lstm_inputs.squeeze(0))[1]
         destination_tree_encoding = self.tree_lstm(trees[destination], tree_lstm_inputs.squeeze(0))[1]
 
-        print(
-            "origin_tree_encoding ", origin_tree_encoding.shape, "\n",
-            "destination_tree_encoding ", destination_tree_encoding.shape, "\n"
-        )
-
         relation_pair = torch.cat([origin_tree_encoding, destination_tree_encoding], dim = -1)
-
-        print(
-            "relation_pair ", relation_pair.shape, "\n",
-        )
 
         return F.softmax(self.relations_decoder(relation_pair), dim = -1)
 

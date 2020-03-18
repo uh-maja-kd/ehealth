@@ -436,21 +436,25 @@ class DependencyJointAlgorithm(Algorithm):
             lr=train_config.optimizer.lr,
         )
 
+        relations_criterion = CrossEntropyLoss()
+
         for epoch in range(train_config.epochs):
             #log variables
             running_loss_ent_type = 0
             running_loss_ent_tag = 0
+            running_loss_relations = 0
             train_correct_ent_types = 0
             train_correct_ent_tags = 0
             train_total_words = 0
             val_correct_ent_types = 0
             val_correct_ent_tags = 0
             val_total_words = 0
+            train_total_rels = 0
 
             self.model.train()
             print("Optimizing...")
             for data in tqdm(dataset[:800]):
-                * X, y_ent_type, y_ent_tag = data
+                * X, y_ent_type, y_ent_tag, relations = data
 
                 (
                     word_inputs,
@@ -468,6 +472,25 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
+                rels_loss = 0
+                for origin, destination, y_rel in relations:
+                    #positive direction
+                    X = (
+                        sentence_features,
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.model(X, relation=True)
+                    rel_loss = relations_criterion(out_rel, y_rel)
+                    rel_loss.backward(retain_graph=True)
+                    running_loss_relations += rel_loss.item()
+                    train_total_rels += 1
+
                 loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                 running_loss_ent_type += loss_ent_type.item()
                 loss_ent_type.backward(retain_graph=True)
@@ -481,13 +504,13 @@ class DependencyJointAlgorithm(Algorithm):
             self.model.eval()
             print("Evaluating on training data...")
             for data in tqdm(dataset[:800]):
-                * X, y_ent_type, y_ent_tag = data
+                * X, y_ent_type, y_ent_tag, relations = data
 
                 (
                     word_inputs,
                     char_inputs,
                     dependency_inputs,
-                    trees,
+                    trees
                 ) = X
 
                 X = (
@@ -507,13 +530,13 @@ class DependencyJointAlgorithm(Algorithm):
 
             print("Evaluating on validation data...")
             for data in tqdm(dataset[800:]):
-                * X, y_ent_type, y_ent_tag = data
+                * X, y_ent_type, y_ent_tag, relations = data
 
                 (
                     word_inputs,
                     char_inputs,
                     dependency_inputs,
-                    trees,
+                    trees
                 ) = X
 
                 X = (
@@ -534,6 +557,7 @@ class DependencyJointAlgorithm(Algorithm):
 
             print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
             print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_rels :0.3}")
             print(f"[{epoch + 1}] train_ent_type_acc: {train_correct_ent_types / train_total_words :0.3}")
             print(f"[{epoch + 1}] train_ent_tag_acc: {train_correct_ent_tags / train_total_words :0.3}")
             print(f"[{epoch + 1}] val_ent_type_acc: {val_correct_ent_types / val_total_words :0.3}")
