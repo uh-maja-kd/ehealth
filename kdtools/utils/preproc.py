@@ -234,3 +234,27 @@ class BMEWOVTagsComponent:
     def __init__(self):
         self.entity_tags = ["B", "M", "E", "W", "O", "V"]
         self.tag2index = {tag: idx for (idx, tag) in enumerate(self.entity_tags)}
+
+
+class BERTComponent:
+    def __init__(self):
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+        self.model = BertModel.from_pretrained('bert-base-uncased')
+        self.model.eval()
+
+    def get_word_bert_embedding(self, sentence):
+        sentence = '[CLS]' + sentence + '[SEP]'
+        tokenized_sentence = self.tokenizer.tokenize(sentence)
+        indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
+        segments_ids = [1] * len(tokenized_sentence)
+
+        tokens_tensor = torch.tensor([indexed_tokens])
+        segments_tensors = torch.tensor([segments_ids])
+
+        with torch.no_grad():
+            encoded_layers, _ = self.model(tokens_tensor, segments_tensors)
+        
+        token_embeddings = torch.stack(encoded_layers, dim=0)
+        
+
+
