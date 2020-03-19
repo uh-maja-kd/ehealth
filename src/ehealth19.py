@@ -9,6 +9,7 @@ from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
 from numpy.random import permutation
+from sortedcollections import ValueSortedDict
 
 from kdtools.datasets import (
     SimpleWordIndexDataset,
@@ -406,7 +407,43 @@ class DependencyJointAlgorithm(Algorithm):
         self.model = None
 
     def run(self, collection: Collection):
-        pass
+        dataset = DependencyJointModelDataset(collection, self.model.wv)
+
+        entity_id = 0
+
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                word_inputs,
+                char_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            #ENTITIES
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.model(X)
+            predicted_entities_types = [dataset.entity_types[idx] for idx in out_ent_type]
+            predicted_entities_tags = [dataset.entity_tags[idx] for idx in out_ent_tag]
+
+            kps = [[sentence_spans[idx] for idx in span_list] for span_list in BMEWOV.decode(predicted_entities_tags)]
+            for kp_spans in kps:
+                count = ValueSortedDict([(type,0) for type in dataset.entity_types])
+                for span in kp_spans:
+                    span_index = sentence_spans.index(span)
+                    span_type = predicted_entities_types[span_index]
+                    count[span_type] -= 1
+                entity_type = list(count.items())[0][0]
+
+                entity_id += 1
+                sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+
 
     def train(self, collection: Collection):
         builder = ConfigBuilder()

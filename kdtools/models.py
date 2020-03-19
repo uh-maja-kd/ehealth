@@ -470,6 +470,8 @@ class DependencyJointModel(nn.Module):
 
         super().__init__()
 
+        self.wv = wv
+
         #INPUT PROCESSING
 
         #Word Embedding layer

@@ -637,6 +637,8 @@ class DependencyJointModelDataset(
 
         self.dataxsentence = self._get_sentences_data(collection)
         self.data = self.get_data()
+        self.sentences = collection.sentences
+        self.sentences_spans = [self.get_spans(sentence.text) for sentence in self.sentences]
 
     def _get_sentences_data(self, collection):
         data = []
@@ -795,6 +797,14 @@ class DependencyJointModelDataset(
     def __getitem__(self, index):
         return self.data[index]
 
+    @property
+    def evaluation(self):
+        eval = []
+        for sentence, sentence_spans, data in zip(self.sentences, self.sentences_spans, self):
+            * X, _, _, _ = data
+            eval.append((sentence, sentence_spans, *X))
+
+        return eval
 
     @property
     def embedding_size(self):
