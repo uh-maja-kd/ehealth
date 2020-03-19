@@ -8,7 +8,7 @@ from scripts.submit import Algorithm
 from scripts.utils import Collection, Keyphrase, Relation
 from python_json_config import ConfigBuilder
 
-from numpy.random import permutation
+from numpy.random import permutation, shuffle
 from sortedcollections import ValueSortedDict
 
 from kdtools.datasets import (
@@ -406,15 +406,26 @@ class DependencyJointAlgorithm(Algorithm):
     def __init__(self):
         self.model = None
 
-    def run(self, collection: Collection):
+    def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
+
+        if taskA:
+            self.run_taskA(collection)
+
+        if taskB:
+            self.run_taskB(collection)
+
+    def run_taskA(self, collection: Collection):
+        print("Running task A...")
         dataset = DependencyJointModelDataset(collection, self.model.wv)
 
         entity_id = 0
 
+        print("Running...")
         for data in tqdm(dataset.evaluation):
             (
                 sentence,
                 sentence_spans,
+                head_words,
                 word_inputs,
                 char_inputs,
                 dependency_inputs,
@@ -442,6 +453,52 @@ class DependencyJointAlgorithm(Algorithm):
 
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+
+    def run_taskB(self, collection: Collection):
+        print("Running task B...")
+
+        dataset = DependencyJointModelDataset(collection, self.model.wv)
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.model(X)
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                #positive direction
+                X = (
+                    sentence_features,
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.model(X, relation=True)
+                relation = dataset.relations[torch.argmax(out_rel)]
+                if relation != "none":
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
 
 
 
@@ -521,10 +578,12 @@ class DependencyJointAlgorithm(Algorithm):
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
                 positive_rels = relations["pos"]
-                negative_rels = relations["neg"][:len(positive_rels)]
-                relations = permutation(positive_rels + negative_rels)
+                # if epoch == 3:
+                #     shuffle(relations["neg"])
+                # negative_rels = relations["neg"][:len(positive_rels)]
+                # relations = permutation(positive_rels + negative_rels)
                 rels_loss = 0
-                for origin, destination, y_rel in relations:
+                for origin, destination, y_rel in positive_rels:
                     origin = int(origin)
                     destination = int(destination)
                     y_rel = torch.LongTensor([y_rel])
