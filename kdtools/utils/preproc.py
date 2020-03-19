@@ -4,7 +4,11 @@ import re
 from kdtools.utils.model_helpers import Tree
 from string import ascii_lowercase
 from functools import lru_cache
+
+import torch
 from torch.nn.functional import one_hot
+from transformers import BertTokenizer, BertModel, BertForMaskedLM
+
 import numpy as np
 from numpy.random import permutation
 
@@ -238,11 +242,12 @@ class BMEWOVTagsComponent:
 
 class BERTComponent:
     def __init__(self):
+        self.bert_vector_size = 768 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
         self.model = BertModel.from_pretrained('bert-base-uncased')
         self.model.eval()
 
-    def get_word_bert_embedding(self, sentence):
+    def get_bert_embeddings(self, sentence):
         sentence = '[CLS]' + sentence + '[SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
         indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
@@ -255,6 +260,19 @@ class BERTComponent:
             encoded_layers, _ = self.model(tokens_tensor, segments_tensors)
         
         token_embeddings = torch.stack(encoded_layers, dim=0)
+        token_embeddings = torch.squeeze(token_embeddings, dim=1)
+        token_embeddings = token_embeddings.permute(1,0,2)
+
+        token_vec_sums = []
+
+        for token in token_embeddings:
+            sum_vec = torch.sum(token[-4:], dim=0)
+            token_vec_sums.append(sum_vec)
         
+
+        token_vecs = encoded_layers[11][0]
+
+        token_vec_sums, torch.mean(token_vecs, dim=0)
+
 
 
