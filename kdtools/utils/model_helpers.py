@@ -26,15 +26,21 @@ class Tree(object):
     def depth(self):
         if getattr(self, '_depth', None):
             return self._depth
+        self._depth = self.parent.depth() + 1 if self.parent is not None else 0
+        return self._depth
+
+    def height(self):
+        if getattr(self, '_height', None):
+            return self._height
         count = 0
         if self.num_children > 0:
             for i in range(self.num_children):
-                child_depth = self.children[i].depth()
-                if child_depth > count:
-                    count = child_depth
+                child_height = self.children[i].height()
+                if child_height > count:
+                    count = child_height
             count += 1
-        self._depth = count
-        return self._depth
+        self._height = count
+        return self._height
 
     @property
     def nodes(self):
@@ -57,6 +63,37 @@ class Tree(object):
             self._edges.extend(child.edges)
 
         return self._edges
+
+    @staticmethod
+    def _lca(n1, n2):
+        if n1.depth() <= n2.depth():
+            n1, n2 = n2, n1
+
+        while n1.depth() > n2.depth():
+            n1 = n1.parent
+
+        while n1.idx != n2.idx:
+            n1 = n1.parent
+            n2 = n2.parent
+
+        return n1
+
+    @staticmethod
+    def _path2ancestor(n, ancestor, reverse = False):
+        path = []
+        while n.idx != ancestor.idx:
+            path.append(n)
+            n = n.parent
+        if reverse:
+            path.reverse()
+        return path
+
+    def path(n1, n2):
+        lca = Tree._lca(n1, n2)
+        n12lca = Tree._path2ancestor(n1, lca)
+        lca2n2 = Tree._path2ancestor(n2, lca, reverse = True)
+
+        return n12lca + [lca] + lca2n2
 
     def pydot_img(self, path: str):
         graph = Dot(graph_type='digraph')
