@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
 from kdtools.layers import *
+from kdtools.utils.model_helpers import Tree
 
 #this is a recycled code, it doesn't make use of our BiLSTM, nor CRF layer
 class BiLSTM_CRF(nn.Module):
@@ -523,6 +524,7 @@ class DependencyJointModel(nn.Module):
 
         #encoding those inputs
         bilstm_encoding, _ = self.word_bilstm(bilstm_inputs)
+        bilstm_encoding = self.dropout(bilstm_encoding)
 
         #OUTPUTS
 
@@ -561,3 +563,93 @@ class DependencyJointModel(nn.Module):
 
         return F.softmax(self.relations_decoder(relation_pair), dim = -1)
 
+
+class ShortestDependencyPathJointModel(DependencyJointModel):
+
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_dependencies,
+        dependency_size,
+        entity_type_size,
+        entity_tag_size,
+        tree_lstm_hidden_size,
+        bilstm_shared_hidden_size,
+        lstm_rels_hidden_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        no_relations
+        ):
+
+        super().__init__(
+            embedding_size,
+            wv,
+            no_chars,
+            charencoding_size,
+            no_dependencies,
+            dependency_size,
+            entity_type_size,
+            entity_tag_size,
+            tree_lstm_hidden_size,
+            bilstm_shared_hidden_size,
+            dropout_chance,
+            no_entity_types,
+            no_entity_tags,
+            no_relations
+        )
+
+        lstm_rels_input_size = bilstm_shared_hidden_size + dependency_size + entity_type_size + entity_tag_size
+        self.dep_path_lstm = nn.LSTM(lstm_rels_input_size, lstm_rels_hidden_size, batch_first=True)
+        self.relations_decoder = nn.Linear(lstm_rels_hidden_size, no_relations)
+
+    def relation_forward(self, X):
+        (
+            bi_lstm_encoding,
+            entities_types_output,
+            entities_tags_output,
+            dependency_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+
+        entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
+        entities_tags_inputs = torch.tensor(entities_tags_output, dtype = torch.long).unsqueeze(0)
+
+        entities_types_embeddings = self.entity_type_embedding(entities_types_inputs)
+        entities_tags_embeddings = self.entity_tag_embedding(entities_tags_inputs)
+        dependency_embeddings = self.dependency_embedding(dependency_inputs)
+
+        # print(
+        #     "entities_types_embeddings", entities_types_embeddings.shape, "\n",
+        #     "entities_tags_embeddings", entities_tags_embeddings.shape, "\n",
+        #     "dependency_embeddings", dependency_embeddings.shape, "\n"
+        # )
+
+        lstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim=-1)
+
+        # print(
+        #     "lstm_inputs", lstm_inputs.shape, "\n",
+        # )
+
+        dep_path = Tree.path(trees[origin], trees[destination])
+        lstm_inputs_in_path = torch.cat([lstm_inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+
+        # print(len(dep_path))
+        # print(
+        #     "lstm_inputs_in_path", lstm_inputs_in_path.shape, "\n",
+        # )
+
+        lstm_outs, _ = self.dep_path_lstm(lstm_inputs_in_path)
+        lstm_out = lstm_outs[:, -1,:]
+
+        # print(
+        #     "lstm_out", lstm_out.shape, "\n",
+        # )
+
+        return F.softmax(self.relations_decoder(lstm_out), dim = -1)

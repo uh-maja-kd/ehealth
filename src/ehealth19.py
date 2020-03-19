@@ -24,7 +24,8 @@ from kdtools.models import (
     EmbeddingAttentionBiLSTM_CRF,
     EmbeddingBiLSTM_CRF,
     BERT_TreeLSTM_BiLSTM_CNN_JointModel,
-    DependencyJointModel
+    DependencyJointModel,
+    ShortestDependencyPathJointModel
 )
 from kdtools.utils.bmewov import BMEWOV
 
@@ -510,7 +511,7 @@ class DependencyJointAlgorithm(Algorithm):
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
         dataset = DependencyJointModelDataset(collection, wv)
 
-        self.model = DependencyJointModel(
+        self.model = ShortestDependencyPathJointModel(
             dataset.embedding_size,
             wv,
             dataset.no_chars,
@@ -521,6 +522,7 @@ class DependencyJointAlgorithm(Algorithm):
             model_config.entity_tag_size,
             model_config.tree_lstm_hidden_size,
             model_config.bilstm_hidden_size,
+            model_config.tree_lstm_hidden_size, #este es el de la lstm hidden
             model_config.dropout_chance,
             dataset.no_entity_types,
             dataset.no_entity_tags,
@@ -557,7 +559,7 @@ class DependencyJointAlgorithm(Algorithm):
             val_data = shuffled_data[chop_idx:]
 
             self.model.train()
-            print("Optimizing...")
+            print("Optimizing ", "relations..." if epoch % 5 != 0 else "entities...")
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations = data
 
@@ -577,40 +579,42 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
-                positive_rels = relations["pos"]
-                # if epoch == 3:
-                #     shuffle(relations["neg"])
-                # negative_rels = relations["neg"][:len(positive_rels)]
-                # relations = permutation(positive_rels + negative_rels)
-                rels_loss = 0
-                for origin, destination, y_rel in positive_rels:
-                    origin = int(origin)
-                    destination = int(destination)
-                    y_rel = torch.LongTensor([y_rel])
+                if epoch % 5 != 0:
+                    positive_rels = relations["pos"]
+                    # if epoch == 3:
+                    #     shuffle(relations["neg"])
+                    # negative_rels = relations["neg"][:len(positive_rels)]
+                    # relations = permutation(positive_rels + negative_rels)
+                    rels_loss = 0
+                    for origin, destination, y_rel in positive_rels:
+                        origin = int(origin)
+                        destination = int(destination)
+                        y_rel = torch.LongTensor([y_rel])
 
-                    #positive direction
-                    X = (
-                        sentence_features,
-                        out_ent_type,
-                        out_ent_tag,
-                        dependency_inputs.unsqueeze(0),
-                        trees,
-                        origin,
-                        destination
-                    )
+                        #positive direction
+                        X = (
+                            sentence_features,
+                            out_ent_type,
+                            out_ent_tag,
+                            dependency_inputs.unsqueeze(0),
+                            trees,
+                            origin,
+                            destination
+                        )
 
-                    out_rel = self.model(X, relation=True)
-                    rel_loss = relations_criterion(out_rel, y_rel)
-                    rel_loss.backward(retain_graph=True)
-                    running_loss_relations += rel_loss.item()
+                        out_rel = self.model(X, relation=True)
+                        rels_loss += relations_criterion(out_rel, y_rel)
+                    rels_loss.backward()
+                    running_loss_relations += rels_loss.item()
 
-                loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
-                running_loss_ent_type += loss_ent_type.item()
-                loss_ent_type.backward(retain_graph=True)
+                else:
+                    loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                    running_loss_ent_type += loss_ent_type.item()
+                    loss_ent_type.backward(retain_graph=True)
 
-                loss_ent_tag = self.model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
-                running_loss_ent_tag += loss_ent_tag.item()
-                loss_ent_tag.backward()
+                    loss_ent_tag = self.model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                    running_loss_ent_tag += loss_ent_tag.item()
+                    loss_ent_tag.backward()
 
                 optimizer.step()
 
