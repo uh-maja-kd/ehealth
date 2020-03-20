@@ -7,7 +7,7 @@ from functools import lru_cache
 
 import torch
 from torch.nn.functional import one_hot
-from transformers import BertTokenizer, BertModel, BertForMaskedLM
+from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
 
 import numpy as np
 from numpy.random import permutation
@@ -244,12 +244,56 @@ class BERTComponent:
     def __init__(self):
         self.bert_vector_size = 768 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.model = BertModel.from_pretrained('bert-base-uncased')
+        self.model = BertModel.from_pretrained('D:/TESIS/ehealth/kdtools/utils/bert_model')
         self.model.eval()
 
+
+    def _get_spans_bert_tokens(self, tokenized_sentence):
+        spans = []
+        inf = 1
+        sup = 1
+        start = False
+        for i in range(len(tokenized_sentence)):
+            token = tokenized_sentence[i]
+            if token == '[CLS]' or token == '[SEP]':
+                continue
+            
+            if token[0:2] == '##':
+                sup += 1
+                continue
+            
+            elif start == False:
+                start = True
+                inf = i
+                sup = i
+            
+            else:
+                sup += 1
+                spans.append((inf, sup))
+                inf = i
+                sup = i
+
+                
+        return spans
+    
+    def _mean_merge(self, token_vec_sums, inf, sup):
+        return torch.mean(torch.stack(token_vec_sums[inf:sup], dim=0))
+
+    def _last_merge(self, token_vec_sums, inf, sup):
+        return token_vec_sums[sup]
+
+    def _get_merge_tensors(self, token_vec_sums, spans):
+        real_vec = []
+        for inf,sup in spans:
+            vec = self._last_merge(token_vec_sums, inf, sup)
+            real_vec.append(vec)
+        
+        return real_vec
+
     def get_bert_embeddings(self, sentence):
-        sentence = '[CLS]' + sentence + '[SEP]'
+        sentence = '[CLS] ' + sentence + ' [SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
+        tokens_spans = self._get_spans_bert_tokens(tokenized_sentence)
         indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
         segments_ids = [1] * len(tokenized_sentence)
 
@@ -262,17 +306,19 @@ class BERTComponent:
         token_embeddings = torch.stack(encoded_layers, dim=0)
         token_embeddings = torch.squeeze(token_embeddings, dim=1)
         token_embeddings = token_embeddings.permute(1,0,2)
-
+        
         token_vec_sums = []
 
         for token in token_embeddings:
             sum_vec = torch.sum(token[-4:], dim=0)
             token_vec_sums.append(sum_vec)
         
-
         token_vecs = encoded_layers[11][0]
+        sentence_embedding = torch.mean(token_vecs, dim=0)
+        word_bert_embedding = self._get_merge_tensors(token_vec_sums, tokens_spans)
 
-        token_vec_sums, torch.mean(token_vecs, dim=0)
+
+        return word_bert_embedding, sentence_embedding
 
 
 
