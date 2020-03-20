@@ -770,7 +770,8 @@ class DependencyJointModelDataset(
             paired_tokens = [(orig, dest) for orig, dest, _ in positive_relations]
             indices = list(range(sent_len))
             negative_relations = [(i, j, torch.LongTensor([self.relation2index['none']])) \
-                for i,j in list(product(indices, indices)) if (i,j) not in paired_tokens]
+                for i, j in list(product(indices, indices)) \
+                    if (i, j) not in paired_tokens and len(head_words[i]) > 0 and len(head_words[j]) > 0]
 
             relations = {
                 "pos": positive_relations,

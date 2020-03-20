@@ -507,8 +507,11 @@ class DependencyJointAlgorithm(Algorithm):
     def evaluate(self, model, dataset):
         model.eval()
 
-        correct_relations = 0
-        total_relations = 0
+        correct_true_relations = 0
+        total_true_relations = 0
+        correct_false_relations = 0
+        total_false_relations = 0
+        false_positive_relations = 0
         correct_ent_types = 0
         correct_ent_tags = 0
         total_words = 0
@@ -544,8 +547,25 @@ class DependencyJointAlgorithm(Algorithm):
                 )
 
                 out_rel = model(X, relation=True)
-                correct_relations += int(torch.argmax(out_rel) == y_rel)
-                total_relations += 1
+                correct_true_relations += int(torch.argmax(out_rel) == y_rel)
+                total_true_relations += 1
+
+            negative_rels = relations["neg"]
+            for origin, destination, y_rel in negative_rels:
+                #positive direction
+                X = (
+                    sentence_features,
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = model(X, relation=True)
+                correct_false_relations += int(torch.argmax(out_rel) == y_rel)
+                total_false_relations += 1
 
             #entity type
             correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
@@ -561,7 +581,8 @@ class DependencyJointAlgorithm(Algorithm):
                 "entity_tags_accuracy": correct_ent_tags / total_words
             },
             "relations":{
-                "relations_recovery": correct_relations / total_relations
+                "true_relations_accuracy": correct_true_relations / total_true_relations,
+                "false_relations_accuracy": correct_false_relations / total_false_relations
             }
         }
 
@@ -596,19 +617,21 @@ class DependencyJointAlgorithm(Algorithm):
             train_config = builder.parse_config('./configs/config_Train_DependencyJointModel.json').joint
             self.train_joint(dataset, val_data, train_config)
             if save_path is not None:
-                torch.save(self.modet.state_dict(save_path + "/joint_model.ptdict"))
-        else:
+                torch.save(self.model.state_dict(), save_path + "joint_model.ptdict")
+        elif mode == "separated":
             print("Training taskA")
             train_configA = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskA
             self.train_taskA(dataset, val_data, train_configA)
             if save_path is not None:
-                torch.save(self.modet.state_dict(save_path + "/joint_modelA.ptdict"))
+                print("Saving taskA weights...")
+                torch.save(self.model.state_dict(), save_path + "joint_modelA.ptdict")
 
             print("Training taskB")
             train_configB = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskB
             self.train_taskB(dataset, val_data, train_configB)
             if save_path is not None:
-                torch.save(self.modet.state_dict(save_path + "/joint_modelB.ptdict"))
+                print("Saving taskB weights...")
+                torch.save(self.model.state_dict(), save_path + "joint_modelB.ptdict")
 
     def train_joint(self, dataset, val_data, train_config):
 
@@ -819,15 +842,15 @@ class DependencyJointAlgorithm(Algorithm):
                 positive_rels = relations["pos"]
                 if epoch == 0:
                     shuffle(relations["neg"])
-                negative_rels = relations["neg"][:len(positive_rels)]
-                relations = permutation(positive_rels + negative_rels)
+                negative_rels = relations["neg"][:1]
+                # relations = permutation(positive_rels + negative_rels)
                 rels_loss = 0
-                for origin, destination, y_rel in positive_rels:
-                    origin = int(origin)
-                    destination = int(destination)
-                    y_rel = torch.LongTensor([y_rel])
+                for origin, destination, y_rel in positive_rels + negative_rels:
+                    # print(origin, destination, y_rel)
+                    # origin = int(origin)
+                    # destination = int(destination)
+                    # y_rel = torch.LongTensor([y_rel])
 
-                    #positive direction
                     X = (
                         sentence_features,
                         out_ent_type,
