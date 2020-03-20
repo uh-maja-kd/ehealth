@@ -11,6 +11,8 @@ from python_json_config import ConfigBuilder
 from numpy.random import permutation, shuffle
 from sortedcollections import ValueSortedDict
 
+from pathlib import Path
+
 from kdtools.datasets import (
     SimpleWordIndexDataset,
     RelationsDependencyParseActionsDataset,
@@ -502,14 +504,74 @@ class DependencyJointAlgorithm(Algorithm):
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
 
 
+    def evaluate(self, model, dataset):
+        model.eval()
 
-    def train(self, collection: Collection):
+        correct_relations = 0
+        total_relations = 0
+        correct_ent_types = 0
+        correct_ent_tags = 0
+        total_words = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = model(X)
+
+            positive_rels = relations["pos"]
+            for origin, destination, y_rel in positive_rels:
+                #positive direction
+                X = (
+                    sentence_features,
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = model(X, relation=True)
+                correct_relations += int(torch.argmax(out_rel) == y_rel)
+                total_relations += 1
+
+            #entity type
+            correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+            #entity tags
+            correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+            total_words += len(out_ent_tag)
+
+        return {
+            "entities":{
+                "entity_types_accuracy": correct_ent_types/total_words,
+                "entity_tags_accuracy": correct_ent_tags / total_words
+            },
+            "relations":{
+                "relations_recovery": correct_relations / total_relations
+            }
+        }
+
+    def train(self, train_collection: Collection, validation_collection: Collection, save_path = None, mode = "joint"):
         builder = ConfigBuilder()
         model_config = builder.parse_config('./configs/config_DependencyJointModel.json')
-        train_config = builder.parse_config('./configs/config_Train_DependencyJointModel.json')
 
         wv = Word2VecKeyedVectors.load(model_config.embedding_path)
-        dataset = DependencyJointModelDataset(collection, wv)
+        dataset = DependencyJointModelDataset(train_collection, wv)
+        val_data = DependencyJointModelDataset(validation_collection, wv)
 
         self.model = ShortestDependencyPathJointModel(
             dataset.embedding_size,
@@ -522,12 +584,33 @@ class DependencyJointAlgorithm(Algorithm):
             model_config.entity_tag_size,
             model_config.tree_lstm_hidden_size,
             model_config.bilstm_hidden_size,
-            model_config.tree_lstm_hidden_size, #este es el de la lstm hidden
+            model_config.lstm_relations_hidden_size,
             model_config.dropout_chance,
             dataset.no_entity_types,
             dataset.no_entity_tags,
             dataset.no_relations
         )
+
+        if mode == "joint":
+            print("Training jointly")
+            train_config = builder.parse_config('./configs/config_Train_DependencyJointModel.json').joint
+            self.train_joint(dataset, val_data, train_config)
+            if save_path is not None:
+                torch.save(self.modet.state_dict(save_path + "/joint_model.ptdict"))
+        else:
+            print("Training taskA")
+            train_configA = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskA
+            self.train_taskA(dataset, val_data, train_configA)
+            if save_path is not None:
+                torch.save(self.modet.state_dict(save_path + "/joint_modelA.ptdict"))
+
+            print("Training taskB")
+            train_configB = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskB
+            self.train_taskB(dataset, val_data, train_configB)
+            if save_path is not None:
+                torch.save(self.modet.state_dict(save_path + "/joint_modelB.ptdict"))
+
+    def train_joint(self, dataset, val_data, train_config):
 
         optimizer = optim.Adam(
             self.model.parameters(),
@@ -541,22 +624,10 @@ class DependencyJointAlgorithm(Algorithm):
             running_loss_ent_type = 0
             running_loss_ent_tag = 0
             running_loss_relations = 0
-            train_correct_relations = 0
-            train_correct_ent_types = 0
-            train_correct_ent_tags = 0
-            train_total_words = 0
-            train_total_relations = 0
-            val_correct_relations = 0
-            val_correct_ent_types = 0
-            val_correct_ent_tags = 0
-            val_total_words = 0
-            val_total_relations = 0
+            train_total_words = -1 #avoid divide by zero
+            train_total_relations = -1 #avoid divide by zero
 
-            shuffled_data = list(dataset.get_shuffled_data())
-            # shuffled_data = dataset
-            chop_idx = int(0.8*len(dataset))
-            train_data = shuffled_data[:chop_idx]
-            val_data = shuffled_data[chop_idx:]
+            train_data = list(dataset.get_shuffled_data())
 
             self.model.train()
             print("Optimizing ", "relations..." if epoch % 5 != 0 else "entities...")
@@ -579,7 +650,11 @@ class DependencyJointAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
+                train_total_words += len(trees)
+
                 if epoch % 5 != 0:
+                    train_total_relations += 1
+
                     positive_rels = relations["pos"]
                     # if epoch == 3:
                     #     shuffle(relations["neg"])
@@ -604,10 +679,15 @@ class DependencyJointAlgorithm(Algorithm):
 
                         out_rel = self.model(X, relation=True)
                         rels_loss += relations_criterion(out_rel, y_rel)
+                        train_total_relations += 1
+
                     rels_loss.backward()
                     running_loss_relations += rels_loss.item()
 
                 else:
+                    train_total_words += 1
+                    train_total_words += len(trees)
+
                     loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                     running_loss_ent_type += loss_ent_type.item()
                     loss_ent_type.backward(retain_graph=True)
@@ -618,8 +698,105 @@ class DependencyJointAlgorithm(Algorithm):
 
                 optimizer.step()
 
-            self.model.eval()
             print("Evaluating on training data...")
+            train_diagnostics = self.evaluate(self.model, train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate(self.model, val_data)
+
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+
+            for key, value in train_diagnostics["entities"].items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in train_diagnostics["relations"].items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics["entities"].items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+            for key, value in val_diagnostics["relations"].items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+    def train_taskA(self, dataset, val_data, train_config):
+
+        optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_ent_type = 0
+            running_loss_ent_tag = 0
+            train_total_words = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                sentence_features, out_ent_type, out_ent_tag = self.model(X)
+
+                train_total_words += len(trees)
+
+                loss_ent_type = self.model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                running_loss_ent_type += loss_ent_type.item()
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = self.model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                running_loss_ent_tag += loss_ent_tag.item()
+                loss_ent_tag.backward()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate(self.model, train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate(self.model, val_data)
+
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+
+            for key, value in train_diagnostics["entities"].items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics["entities"].items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+    def train_taskB(self, dataset, val_data, train_config):
+
+        optimizer = optim.Adam(
+            self.model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        relations_criterion = CrossEntropyLoss()
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_relations = 0
+            train_total_relations = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.model.train()
+            print("Optimizing...")
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations = data
 
@@ -635,10 +812,21 @@ class DependencyJointAlgorithm(Algorithm):
                     char_inputs.unsqueeze(0)
                 )
 
+                optimizer.zero_grad()
+
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
                 positive_rels = relations["pos"]
+                if epoch == 0:
+                    shuffle(relations["neg"])
+                negative_rels = relations["neg"][:len(positive_rels)]
+                relations = permutation(positive_rels + negative_rels)
+                rels_loss = 0
                 for origin, destination, y_rel in positive_rels:
+                    origin = int(origin)
+                    destination = int(destination)
+                    y_rel = torch.LongTensor([y_rel])
+
                     #positive direction
                     X = (
                         sentence_features,
@@ -651,72 +839,26 @@ class DependencyJointAlgorithm(Algorithm):
                     )
 
                     out_rel = self.model(X, relation=True)
-                    train_correct_relations += int(torch.argmax(out_rel) == y_rel)
+                    rels_loss += relations_criterion(out_rel, y_rel)
                     train_total_relations += 1
 
-                #entity type
-                train_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+                rels_loss.backward()
+                running_loss_relations += rels_loss.item()
 
-                #entity tags
-                train_correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+                optimizer.step()
 
-                train_total_words += len(out_ent_tag)
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate(self.model, train_data)
 
             print("Evaluating on validation data...")
-            for data in tqdm(val_data):
-                * X, y_ent_type, y_ent_tag, relations = data
-
-                (
-                    word_inputs,
-                    char_inputs,
-                    dependency_inputs,
-                    trees
-                ) = X
-
-                X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0)
-                )
-
-                sentence_features, out_ent_type, out_ent_tag = self.model(X)
-
-                positive_rels = relations["pos"]
-                for origin, destination, y_rel in positive_rels:
-                    #positive direction
-                    X = (
-                        sentence_features,
-                        out_ent_type,
-                        out_ent_tag,
-                        dependency_inputs.unsqueeze(0),
-                        trees,
-                        origin,
-                        destination
-                    )
-
-                    out_rel = self.model(X, relation=True)
-                    val_correct_relations += int(torch.argmax(out_rel) == y_rel)
-                    val_total_relations += 1
-
-                #entity type
-                val_correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
-
-                #entity tags
-                val_correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
-
-                val_total_words += len(out_ent_tag)
+            val_diagnostics = self.evaluate(self.model, val_data)
 
             print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
-            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
-            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
-            print(f"[{epoch + 1}] train_rels_acc: {train_correct_relations / train_total_relations :0.3}")
-            print(f"[{epoch + 1}] train_ent_type_acc: {train_correct_ent_types / train_total_words :0.3}")
-            print(f"[{epoch + 1}] train_ent_tag_acc: {train_correct_ent_tags / train_total_words :0.3}")
-            print(f"[{epoch + 1}] val_rels_acc: {val_correct_relations / val_total_relations :0.3}")
-            print(f"[{epoch + 1}] val_ent_type_acc: {val_correct_ent_types / val_total_words :0.3}")
-            print(f"[{epoch + 1}] val_ent_tag_acc: {val_correct_ent_tags / val_total_words :0.3}")
 
-
-
+            for key, value in train_diagnostics["relations"].items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics["relations"].items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
 
 if __name__ == "__main__":
     from pathlib import Path
