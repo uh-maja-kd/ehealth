@@ -1,6 +1,20 @@
 {
-    "epochs": 30,
-    "optimizer": {
-        "lr": 0.01
+    "joint": {
+        "epochs": 30,
+        "optimizer": {
+            "lr": 0.01
+        }
+    },
+    "taskA": {
+        "epochs": 10,
+        "optimizer": {
+            "lr": 0.01
+        }
+    },
+    "taskB": {
+        "epochs": 30,
+        "optimizer": {
+            "lr": 0.01
+        }
     }
 }
