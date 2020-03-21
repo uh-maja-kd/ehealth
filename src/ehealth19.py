@@ -27,7 +27,10 @@ from kdtools.models import (
     EmbeddingBiLSTM_CRF,
     BERT_TreeLSTM_BiLSTM_CNN_JointModel,
     DependencyJointModel,
-    ShortestDependencyPathJointModel
+    ShortestDependencyPathJointModel,
+    StackedBiLSTMCRFModel,
+    DependencyRelationsModel,
+    ShortestDependencyPathRelationsModel
 )
 from kdtools.utils.bmewov import BMEWOV
 
@@ -431,6 +434,7 @@ class DependencyJointAlgorithm(Algorithm):
                 head_words,
                 word_inputs,
                 char_inputs,
+                postag_inputs,
                 dependency_inputs,
                 trees
             ) = data
@@ -438,7 +442,8 @@ class DependencyJointAlgorithm(Algorithm):
             #ENTITIES
             X = (
                 word_inputs.unsqueeze(0),
-                char_inputs.unsqueeze(0)
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.model(X)
@@ -471,13 +476,15 @@ class DependencyJointAlgorithm(Algorithm):
                 head_words,
                 word_inputs,
                 char_inputs,
+                postag_inputs,
                 dependency_inputs,
                 trees
             ) = data
 
             X = (
                 word_inputs.unsqueeze(0),
-                char_inputs.unsqueeze(0)
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.model(X)
@@ -522,13 +529,15 @@ class DependencyJointAlgorithm(Algorithm):
             (
                 word_inputs,
                 char_inputs,
+                postag_inputs,
                 dependency_inputs,
                 trees
             ) = X
 
             X = (
                 word_inputs.unsqueeze(0),
-                char_inputs.unsqueeze(0)
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
             )
 
             sentence_features, out_ent_type, out_ent_tag = model(X)
@@ -599,14 +608,18 @@ class DependencyJointAlgorithm(Algorithm):
             wv,
             dataset.no_chars,
             model_config.charencoding_size,
+            dataset.no_postags,
+            model_config.postag_size,
             dataset.no_dependencies,
             model_config.dependency_size,
             model_config.entity_type_size,
             model_config.entity_tag_size,
+            model_config.bilstm_shared_hidden_size,
             model_config.tree_lstm_hidden_size,
-            model_config.bilstm_hidden_size,
-            model_config.lstm_relations_hidden_size,
-            model_config.dropout_chance,
+            model_config.bilstm_relations_hidden_size,
+            model_config.relations_dense_size,
+            model_config.shared_dropout_chance,
+            model_config.relations_dropout_chance,
             dataset.no_entity_types,
             dataset.no_entity_tags,
             dataset.no_relations
@@ -619,12 +632,12 @@ class DependencyJointAlgorithm(Algorithm):
             if save_path is not None:
                 torch.save(self.model.state_dict(), save_path + "joint_model.ptdict")
         elif mode == "separated":
-            print("Training taskA")
-            train_configA = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskA
-            self.train_taskA(dataset, val_data, train_configA)
-            if save_path is not None:
-                print("Saving taskA weights...")
-                torch.save(self.model.state_dict(), save_path + "joint_modelA.ptdict")
+            # print("Training taskA")
+            # train_configA = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskA
+            # self.train_taskA(dataset, val_data, train_configA)
+            # if save_path is not None:
+            #     print("Saving taskA weights...")
+            #     torch.save(self.model.state_dict(), save_path + "joint_modelA.ptdict")
 
             print("Training taskB")
             train_configB = builder.parse_config('./configs/config_Train_DependencyJointModel.json').taskB
@@ -763,13 +776,15 @@ class DependencyJointAlgorithm(Algorithm):
                 (
                     word_inputs,
                     char_inputs,
+                    postag_inputs,
                     dependency_inputs,
                     trees,
                 ) = X
 
                 X = (
                     word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0)
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
                 )
 
                 optimizer.zero_grad()
@@ -826,13 +841,15 @@ class DependencyJointAlgorithm(Algorithm):
                 (
                     word_inputs,
                     char_inputs,
+                    postag_inputs,
                     dependency_inputs,
                     trees
                 ) = X
 
                 X = (
                     word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0)
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
                 )
 
                 optimizer.zero_grad()
@@ -840,13 +857,13 @@ class DependencyJointAlgorithm(Algorithm):
                 sentence_features, out_ent_type, out_ent_tag = self.model(X)
 
                 positive_rels = relations["pos"]
+                # negative_rels = relations["neg"]
                 if epoch == 0:
                     shuffle(relations["neg"])
                 negative_rels = relations["neg"][:1]
                 # relations = permutation(positive_rels + negative_rels)
                 rels_loss = 0
                 for origin, destination, y_rel in positive_rels + negative_rels:
-                    # print(origin, destination, y_rel)
                     # origin = int(origin)
                     # destination = int(destination)
                     # y_rel = torch.LongTensor([y_rel])
@@ -882,6 +899,426 @@ class DependencyJointAlgorithm(Algorithm):
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
             for key, value in val_diagnostics["relations"].items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+
+class TransferAlgorithm(Algorithm):
+
+    def __init__(self):
+        self.taskA_model = None
+        self.taskB_model = None
+
+    def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
+
+        if taskA:
+            self.run_taskA(collection)
+
+        if taskB:
+            self.run_taskB(collection)
+
+    def run_taskA(self, collection: Collection):
+        print("Running task A...")
+        dataset = DependencyJointModelDataset(collection, self.model.wv)
+
+        entity_id = 0
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            #ENTITIES
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+            predicted_entities_types = [dataset.entity_types[idx] for idx in out_ent_type]
+            predicted_entities_tags = [dataset.entity_tags[idx] for idx in out_ent_tag]
+
+            kps = [[sentence_spans[idx] for idx in span_list] for span_list in BMEWOV.decode(predicted_entities_tags)]
+            for kp_spans in kps:
+                count = ValueSortedDict([(type,0) for type in dataset.entity_types])
+                for span in kp_spans:
+                    span_index = sentence_spans.index(span)
+                    span_type = predicted_entities_types[span_index]
+                    count[span_type] -= 1
+                entity_type = list(count.items())[0][0]
+
+                entity_id += 1
+                sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+    def run_taskB(self, collection: Collection):
+        print("Running task B...")
+
+        dataset = DependencyJointModelDataset(collection, self.model.wv)
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                #positive direction
+                X = (
+                    sentence_features,
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model(X)
+                relation = dataset.relations[torch.argmax(out_rel)]
+                if relation != "none":
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
+
+
+    def evaluate_taskA(self, dataset):
+        self.taskA_model.eval()
+
+        correct_ent_types = 0
+        correct_ent_tags = 0
+        total_words = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            #entity type
+            correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+            #entity tags
+            correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+            total_words += len(out_ent_tag)
+
+        return {
+            "entity_types_accuracy": correct_ent_types/total_words,
+            "entity_tags_accuracy": correct_ent_tags / total_words
+        }
+
+    def evaluate_taskB(self, dataset):
+        self.taskA_model.eval()
+        self.taskB_model.eval()
+
+        correct_true_relations = 0
+        total_true_relations = 0
+        correct_false_relations = 0
+        total_false_relations = 0
+        false_positive_relations = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            positive_rels = relations["pos"]
+            for origin, destination, y_rel in positive_rels:
+                #positive direction
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model(X)
+                correct_true_relations += int(torch.argmax(out_rel) == y_rel)
+                total_true_relations += 1
+
+            # negative_rels = relations["neg"]
+            # for origin, destination, y_rel in negative_rels:
+            #     #positive direction
+            #     X = (
+            #         word_inputs.unsqueeze(0),
+            #         char_inputs.unsqueeze(0),
+            #         postag_inputs.unsqueeze(0),
+            #         out_ent_type,
+            #         out_ent_tag,
+            #         dependency_inputs.unsqueeze(0),
+            #         trees,
+            #         origin,
+            #         destination
+            #     )
+
+            #     out_rel = self.taskB_model(X)
+            #     correct_false_relations += int(torch.argmax(out_rel) == y_rel)
+            #     total_false_relations += 1
+
+        return {
+            "true_relations_accuracy": correct_true_relations / total_true_relations
+            # "false_relations_accuracy": correct_false_relations / total_false_relations
+        }
+
+
+    def train(self, train_collection: Collection, validation_collection: Collection, save_path = None):
+        builder = ConfigBuilder()
+        model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
+        train_configA = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskA
+        model_configB = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+        train_configB = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB
+
+        wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
+        dataset = DependencyJointModelDataset(train_collection, wv)
+        val_data = DependencyJointModelDataset(validation_collection, wv)
+
+        print("Training taskA")
+        self.train_taskA(dataset, val_data, model_configA, train_configA)
+        # if save_path is not None:
+        #     print("Saving taskA weights...")
+        #     torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
+
+        print("Training taskB")
+        self.train_taskB(dataset, val_data, model_configB, train_configB)
+        if save_path is not None:
+            print("Saving taskB weights...")
+            torch.save(self.taskB_model.state_dict(), save_path + "transfer_modelB.ptdict")
+
+    def train_taskA(self, dataset, val_data, model_config, train_config):
+        self.taskA_model = StackedBiLSTMCRFModel(
+            dataset.embedding_size,
+            dataset.wv,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            dataset.no_postags,
+            model_config.postag_size,
+            model_config.bilstm_hidden_size,
+            model_config.dropout_chance,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+        )
+
+        self.taskA_model.load_state_dict(torch.load("./trained/models/200320_2/transfer_modelA.ptdict"))
+        return
+
+        optimizer = optim.Adam(
+            self.taskA_model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_ent_type = 0
+            running_loss_ent_tag = 0
+            train_total_words = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskA_model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+                train_total_words += len(trees)
+
+                loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                running_loss_ent_type += loss_ent_type.item()
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                running_loss_ent_tag += loss_ent_tag.item()
+                loss_ent_tag.backward()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskA(train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskA(val_data)
+
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+    def train_taskB(self, dataset, val_data, model_config, train_config):
+
+        self.taskB_model = ShortestDependencyPathRelationsModel(
+            dataset.embedding_size,
+            dataset.wv,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            dataset.no_postags,
+            model_config.postag_size,
+            dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.dropout_chance,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+            dataset.no_relations
+        )
+
+        optimizer = optim.Adam(
+            self.taskB_model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        relations_criterion = CrossEntropyLoss()
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_relations = 0
+            train_total_relations = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskB_model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, relations = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                self.taskA_model.eval()
+                _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+                positive_rels = relations["pos"]
+                # if epoch == 0:
+                #     shuffle(relations["neg"])
+                # negative_rels = relations["neg"][:1]
+                rels_loss = 0
+                for origin, destination, y_rel in positive_rels:
+
+                    X = (
+                        word_inputs.unsqueeze(0),
+                        char_inputs.unsqueeze(0),
+                        postag_inputs.unsqueeze(0),
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.taskB_model(X)
+                    rels_loss += relations_criterion(out_rel, y_rel)
+                    train_total_relations += 1
+
+                rels_loss.backward()
+                running_loss_relations += rels_loss.item()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskB(train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskB(val_data)
+
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
 
 if __name__ == "__main__":
     from pathlib import Path
