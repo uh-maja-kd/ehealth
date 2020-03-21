@@ -617,6 +617,7 @@ class DependencyJointModelDataset(
     EmbeddingComponent,
     CharEmbeddingComponent,
     DependencyComponent,
+    PostagComponent,
     DependencyTreeComponent,
     EntityTypesComponent,
     RelationComponent,
@@ -628,6 +629,7 @@ class DependencyJointModelDataset(
         TokenizerComponent.__init__(self)
         EmbeddingComponent.__init__(self, wv)
         CharEmbeddingComponent.__init__(self)
+        PostagComponent.__init__(self)
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
         EntityTypesComponent.__init__(self)
@@ -647,6 +649,7 @@ class DependencyJointModelDataset(
 
             word_embedding_data = self._get_word_embedding_data(words)
             char_embedding_data = self._get_char_embedding_data(words)
+            postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
             dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
             head_words = self._get_head_words(sentence, spans, dep_tree)
@@ -659,6 +662,7 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
+                postag_data,
                 dependency_data,
                 dependencytree_data
             ))
@@ -696,6 +700,9 @@ class DependencyJointModelDataset(
         max_word_len = max([len(word) for word in words])
         chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
         return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
+
+    def _get_postag_data(self, sentence):
+        return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
 
     def _get_dependency_data(self ,sentence):
         return torch.tensor(self.get_sentence_dependencies(sentence), dtype=torch.long)
@@ -739,6 +746,7 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
+                postag_embedding_data,
                 dependency_data,
                 dependencytree_data
             ) = sent_data
@@ -781,6 +789,7 @@ class DependencyJointModelDataset(
             data.append((
                 word_embedding_data,
                 char_embedding_data,
+                postag_embedding_data,
                 dependency_data,
                 dependencytree_data,
                 sentence_labels,
@@ -810,7 +819,8 @@ class DependencyJointModelDataset(
             (
                 word_embedding_data,
                 char_embedding_data,
-                dependency_data,
+                postag_embedding_data,
+                dependency_embedding_data,
                 dependencytree_data,
                 *extra
             ) = data
@@ -821,7 +831,8 @@ class DependencyJointModelDataset(
                 head_words,
                 word_embedding_data,
                 char_embedding_data,
-                dependency_data,
+                postag_embedding_data,
+                dependency_embedding_data,
                 dependencytree_data
             ))
 
@@ -836,6 +847,9 @@ class DependencyJointModelDataset(
     @property
     def no_chars(self):
         return len(self.abc)
+    @property
+    def no_postags(self):
+        return len(self.postags)
     @property
     def no_entity_types(self):
         return len(self.entity_types)

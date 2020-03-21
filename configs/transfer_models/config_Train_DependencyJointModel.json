@@ -1,12 +1,6 @@
 {
-    "joint": {
-        "epochs": 30,
-        "optimizer": {
-            "lr": 0.01
-        }
-    },
     "taskA": {
-        "epochs": 15,
+        "epochs": 20,
         "optimizer": {
             "lr": 0.01
         }

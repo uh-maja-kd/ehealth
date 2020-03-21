@@ -564,7 +564,7 @@ class DependencyJointModel(nn.Module):
         return F.softmax(self.relations_decoder(relation_pair), dim = -1)
 
 
-class ShortestDependencyPathJointModel(DependencyJointModel):
+class ShortestDependencyPathJointModel(nn.Module):
 
     def __init__(
         self,
@@ -572,39 +572,105 @@ class ShortestDependencyPathJointModel(DependencyJointModel):
         wv,
         no_chars,
         charencoding_size,
+        no_postags,
+        postag_size,
         no_dependencies,
         dependency_size,
         entity_type_size,
         entity_tag_size,
-        tree_lstm_hidden_size,
         bilstm_shared_hidden_size,
-        lstm_rels_hidden_size,
-        dropout_chance,
+        tree_lstm_hidden_size,
+        bilstm_rels_hidden_size,
+        relations_dense_size,
+        shared_dropout_chance,
+        relations_dropout_chance,
         no_entity_types,
         no_entity_tags,
         no_relations
         ):
 
-        super().__init__(
-            embedding_size,
-            wv,
-            no_chars,
-            charencoding_size,
-            no_dependencies,
-            dependency_size,
-            entity_type_size,
-            entity_tag_size,
-            tree_lstm_hidden_size,
-            bilstm_shared_hidden_size,
-            dropout_chance,
-            no_entity_types,
-            no_entity_tags,
-            no_relations
-        )
+        super().__init__()
 
-        lstm_rels_input_size = bilstm_shared_hidden_size + dependency_size + entity_type_size + entity_tag_size
-        self.dep_path_lstm = nn.LSTM(lstm_rels_input_size, lstm_rels_hidden_size, batch_first=True)
-        self.relations_decoder = nn.Linear(lstm_rels_hidden_size, no_relations)
+        self.wv = wv
+
+        #INPUT PROCESSING
+
+        #Word Embedding layer
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        #Char Embedding layer
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+
+        #POSTtag Embedding layer
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+
+        #Word-encoding BiLSTMs
+        self.word_bilstm1 = BiLSTM(embedding_size + charencoding_size + postag_size, bilstm_shared_hidden_size // 2, return_sequence=True)
+        self.word_bilstm2 = BiLSTM(bilstm_shared_hidden_size, bilstm_shared_hidden_size//2, return_sequence=True)
+
+        #OUTPUT
+        self.dropout_shared = nn.Dropout(shared_dropout_chance)
+
+        #Entity type
+        self.entities_types_crf_decoder = CRF(bilstm_shared_hidden_size, no_entity_types)
+
+        #Entites
+        self.entities_tags_crf_decoder = CRF(bilstm_shared_hidden_size, no_entity_tags)
+
+        #Relations
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+
+        tree_lstm_input_size = entity_type_size + entity_tag_size + bilstm_shared_hidden_size + dependency_size
+        self.tree_lstm = ChildSumTreeLSTM(tree_lstm_input_size, tree_lstm_hidden_size)
+
+        bilstm_rels_input_size = bilstm_shared_hidden_size + dependency_size + entity_type_size + entity_tag_size
+        self.dep_path_bilstm = BiLSTM(bilstm_rels_input_size, bilstm_rels_hidden_size // 2, batch_first=True)
+
+        relations_dense_input_size = 2*tree_lstm_hidden_size + bilstm_rels_hidden_size
+        self.relations_dense = nn.Linear(relations_dense_input_size, relations_dense_size)
+
+        self.dropout_relations = nn.Dropout(relations_dropout_chance)
+
+        self.relations_decoder = nn.Linear(relations_dense_size, no_relations)
+
+    def forward(self, X, relation=False):
+        return self.relation_forward(X) if relation else self.entities_forward(X)
+
+    def entities_forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            postag_inputs
+        ) = X
+
+        #obtaining embeddings vectors
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+
+        bilstm_inputs = torch.cat(
+            (
+                word_embeddings,
+                char_embeddings,
+                postag_embeddings
+            ), dim=-1)
+
+        #encoding those inputs
+        bilstm_encoding, _ = self.word_bilstm1(bilstm_inputs)
+        bilstm_encoding, _ = self.word_bilstm2(bilstm_encoding)
+        bilstm_encoding = self.dropout_shared(bilstm_encoding)
+
+        #OUTPUTS
+
+        #entity-types
+        _, entities_types_output = self.entities_types_crf_decoder(bilstm_encoding)
+
+        #entity-tags
+        _, entities_tags_output = self.entities_tags_crf_decoder(bilstm_encoding)
+
+        return bilstm_encoding, entities_types_output, entities_tags_output
 
     def relation_forward(self, X):
         (
@@ -616,6 +682,8 @@ class ShortestDependencyPathJointModel(DependencyJointModel):
             origin,
             destination
         ) = X
+
+        print(origin, destination)
 
 
         entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
@@ -631,25 +699,272 @@ class ShortestDependencyPathJointModel(DependencyJointModel):
         #     "dependency_embeddings", dependency_embeddings.shape, "\n"
         # )
 
-        lstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim=-1)
+        tree_lstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim = -1)
+        origin_tree_encoding = self.tree_lstm(trees[origin], tree_lstm_inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm(trees[destination], tree_lstm_inputs.squeeze(0))[1]
 
-        # print(
-        #     "lstm_inputs", lstm_inputs.shape, "\n",
-        # )
-
+        bilstm_inputs = torch.cat([bi_lstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim=-1)
         dep_path = Tree.path(trees[origin], trees[destination])
-        lstm_inputs_in_path = torch.cat([lstm_inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+        bilstm_inputs_in_path = torch.cat([bilstm_inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
 
         # print(len(dep_path))
         # print(
-        #     "lstm_inputs_in_path", lstm_inputs_in_path.shape, "\n",
+        #     "bilstm_inputs_in_path", bilstm_inputs_in_path.shape, "\n",
         # )
 
-        lstm_outs, _ = self.dep_path_lstm(lstm_inputs_in_path)
-        lstm_out = lstm_outs[:, -1,:]
+        bilstm_out, _ = self.dep_path_bilstm(bilstm_inputs_in_path)
 
         # print(
-        #     "lstm_out", lstm_out.shape, "\n",
+        #     "bilstm_out", bilstm_out.shape, "\n",
+        #     "origin_tree_encoding", origin_tree_encoding.shape, "\n",
+        #     "destination_tree_encoding", destination_tree_encoding.shape
         # )
 
-        return F.softmax(self.relations_decoder(lstm_out), dim = -1)
+        relations_dense_input = torch.cat([origin_tree_encoding, bilstm_out, destination_tree_encoding], dim=-1)
+        dense_encoding = self.dropout_relations(torch.tanh(self.relations_dense(relations_dense_input)))
+
+        return F.softmax(self.relations_decoder(dense_encoding), dim = -1)
+
+
+class StackedBiLSTMCRFModel(nn.Module):
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        bilstm_hidden_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        ):
+
+        super().__init__()
+
+        self.wv = wv
+
+        #INPUT PROCESSING
+
+        #Word Embedding layer
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        #Char Embedding layer
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+
+        #POSTtag Embedding layer
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+
+        #Word-encoding BiLSTMs
+        self.word_bilstm1 = BiLSTM(embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
+        self.word_bilstm2 = BiLSTM(bilstm_hidden_size, bilstm_hidden_size//2, return_sequence=True)
+
+        #OUTPUT
+        self.dropout = nn.Dropout(dropout_chance)
+
+        #Entity type
+        self.entities_types_crf_decoder = CRF(bilstm_hidden_size, no_entity_types)
+
+        #Entites
+        self.entities_tags_crf_decoder = CRF(bilstm_hidden_size, no_entity_tags)
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            postag_inputs
+        ) = X
+
+        #obtaining embeddings vectors
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+
+        bilstm_inputs = torch.cat(
+            (
+                word_embeddings,
+                char_embeddings,
+                postag_embeddings
+            ), dim=-1)
+
+        #encoding those inputs
+        bilstm_encoding, _ = self.word_bilstm1(bilstm_inputs)
+        bilstm_encoding, _ = self.word_bilstm2(bilstm_encoding)
+        bilstm_encoding = self.dropout(bilstm_encoding)
+
+        #OUTPUTS
+
+        #entity-types
+        _, entities_types_output = self.entities_types_crf_decoder(bilstm_encoding)
+
+        #entity-tags
+        _, entities_tags_output = self.entities_tags_crf_decoder(bilstm_encoding)
+
+        return bilstm_encoding, entities_types_output, entities_tags_output
+
+class DependencyRelationsModel(nn.Module):
+    def __init__(
+        self,
+        word_encoding_size,
+        no_dependencies,
+        dependency_size,
+        entity_type_size,
+        entity_tag_size,
+        bilstm_hidden_size,
+        tree_lstm_hidden_size,
+        relations_dense_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        no_relations
+        ):
+
+        super().__init__()
+
+        #Relations
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+
+        inputs_total_size = word_encoding_size + entity_type_size + entity_tag_size + dependency_size
+
+        self.tree_lstm = ChildSumTreeLSTM(inputs_total_size, tree_lstm_hidden_size)
+        self.dep_path_bilstm = BiLSTM(inputs_total_size, bilstm_hidden_size // 2, batch_first=True)
+
+        relations_dense_input_size = 2*tree_lstm_hidden_size + bilstm_hidden_size
+        self.relations_dense = nn.Linear(relations_dense_input_size, relations_dense_size)
+
+        self.dropout = nn.Dropout(dropout_chance)
+
+        self.relations_decoder = nn.Linear(relations_dense_size, no_relations)
+
+    def forward(self, X):
+        (
+            words_encoding,
+            entities_types_output,
+            entities_tags_output,
+            dependency_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+        entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
+        entities_tags_inputs = torch.tensor(entities_tags_output, dtype = torch.long).unsqueeze(0)
+
+        entities_types_embeddings = self.entity_type_embedding(entities_types_inputs)
+        entities_tags_embeddings = self.entity_tag_embedding(entities_tags_inputs)
+        dependency_embeddings = self.dependency_embedding(dependency_inputs)
+
+        inputs = torch.cat([words_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim = -1)
+
+        origin_tree_encoding = self.tree_lstm(trees[origin], inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm(trees[destination], inputs.squeeze(0))[1]
+
+        dep_path = Tree.path(trees[origin], trees[destination])
+        inputs_in_path = torch.cat([inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+        bilstm_out, _ = self.dep_path_bilstm(inputs_in_path)
+
+        relations_dense_input = torch.cat([origin_tree_encoding, bilstm_out, destination_tree_encoding], dim=-1)
+        dense_encoding = self.dropout(torch.tanh(self.relations_dense(relations_dense_input)))
+
+        return F.softmax(self.relations_decoder(dense_encoding), dim=-1)
+
+class ShortestDependencyPathRelationsModel(nn.Module):
+
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        no_dependencies,
+        dependency_size,
+        entity_type_size,
+        entity_tag_size,
+        bilstm_words_hidden_size,
+        bilstm_path_hidden_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        no_relations
+        ):
+
+        super().__init__()
+
+        self.wv = wv
+
+        #INPUT PROCESSING
+
+        #Word Embedding layer
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        #Char Embedding layer
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+
+        #POSTtag Embedding layer
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+
+        #Word-encoding BiLSTMs
+        self.word_bilstm1 = BiLSTM(embedding_size + charencoding_size + postag_size, bilstm_words_hidden_size // 2, return_sequence=True)
+        self.word_bilstm2 = BiLSTM(bilstm_words_hidden_size, bilstm_words_hidden_size//2, return_sequence=True)
+
+        self.dropout = nn.Dropout(dropout_chance)
+
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+
+        bilstm_path_input_size = bilstm_words_hidden_size + dependency_size + entity_type_size + entity_tag_size
+        self.dep_path_bilstm = BiLSTM(bilstm_path_input_size, bilstm_path_hidden_size // 2, batch_first=True)
+
+        self.relations_decoder = nn.Linear(bilstm_path_hidden_size, no_relations)
+
+    def forward(self, X):
+
+        (
+            word_inputs,
+            char_inputs,
+            postag_inputs,
+            entities_types_output,
+            entities_tags_output,
+            dependency_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+        #obtaining embeddings vectors
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+
+        bilstm_inputs = torch.cat(
+            (
+                word_embeddings,
+                char_embeddings,
+                postag_embeddings
+            ), dim=-1)
+
+        #encoding those inputs
+        bilstm_encoding, _ = self.word_bilstm1(bilstm_inputs)
+        bilstm_encoding, _ = self.word_bilstm2(bilstm_encoding)
+        bilstm_encoding = self.dropout(bilstm_encoding)
+
+        entities_types_inputs = torch.tensor(entities_types_output, dtype = torch.long).unsqueeze(0)
+        entities_tags_inputs = torch.tensor(entities_tags_output, dtype = torch.long).unsqueeze(0)
+
+        entities_types_embeddings = self.entity_type_embedding(entities_types_inputs)
+        entities_tags_embeddings = self.entity_tag_embedding(entities_tags_inputs)
+        dependency_embeddings = self.dependency_embedding(dependency_inputs)
+
+        bilstm_inputs = torch.cat([bilstm_encoding, entities_types_embeddings, entities_tags_embeddings, dependency_embeddings], dim=-1)
+        dep_path = Tree.path(trees[origin], trees[destination])
+        bilstm_inputs_in_path = torch.cat([bilstm_inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+
+        bilstm_out, _ = self.dep_path_bilstm(bilstm_inputs_in_path)
+
+        return F.softmax(self.relations_decoder(bilstm_out), dim = -1)
