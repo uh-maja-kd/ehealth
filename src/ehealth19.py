@@ -920,7 +920,8 @@ class TransferAlgorithm(Algorithm):
 
     def run_taskA(self, collection: Collection):
         print("Running task A...")
-        dataset = DependencyJointModelDataset(collection, self.model.wv)
+        self.taskA_model.eval()
+        dataset = DependencyJointModelDataset(collection, self.taskA_model.wv)
 
         entity_id = 0
 
@@ -962,8 +963,10 @@ class TransferAlgorithm(Algorithm):
 
     def run_taskB(self, collection: Collection):
         print("Running task B...")
+        self.taskA_model.eval()
+        self.taskB_class_model.eval()
 
-        dataset = DependencyJointModelDataset(collection, self.model.wv)
+        dataset = DependencyJointModelDataset(collection, self.taskA_model.wv)
 
         print("Running...")
         for data in tqdm(dataset.evaluation):
@@ -993,7 +996,9 @@ class TransferAlgorithm(Algorithm):
 
                 #positive direction
                 X = (
-                    sentence_features,
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
                     out_ent_type,
                     out_ent_tag,
                     dependency_inputs.unsqueeze(0),
@@ -1002,7 +1007,7 @@ class TransferAlgorithm(Algorithm):
                     destination
                 )
 
-                out_rel = self.taskB_model(X)
+                out_rel = self.taskB_class_model(X)
                 relation = dataset.relations[torch.argmax(out_rel)]
                 if relation != "none":
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
@@ -1385,7 +1390,7 @@ class TransferAlgorithm(Algorithm):
                 positive_rels = relations["pos"]
                 if epoch == 0:
                     shuffle(relations["neg"])
-                negative_rels = relations["neg"][:1]
+                negative_rels = relations["neg"][:2]
                 rels_loss = 0
                 for origin, destination, y_rel in positive_rels + negative_rels:
 
