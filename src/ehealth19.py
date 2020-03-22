@@ -1,6 +1,6 @@
 import torch
 import torch.optim as optim
-from torch.nn import CrossEntropyLoss, MSELoss
+from torch.nn import CrossEntropyLoss, BCELoss
 from tqdm import tqdm
 from itertools import product
 
@@ -1124,6 +1124,78 @@ class TransferAlgorithm(Algorithm):
             "false_relations_accuracy": correct_false_relations / total_false_relations
         }
 
+    def evaluate_taskB_binary(self, dataset):
+        self.taskA_model.eval()
+        self.taskB_class_model.eval()
+
+        true_positive = 0
+        true_negative = 0
+        false_positive = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            positive_rels = relations["pos"]
+            for origin, destination, y_rel in positive_rels:
+                #positive direction
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_class_model(X)
+                true_positive += int(out_rel > 0.5)
+                false_positive += int(out_rel <= 0.5)
+
+            negative_rels = relations["neg"]
+            for origin, destination, y_rel in negative_rels:
+                #positive direction
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_class_model(X)
+                true_negative += int(out_rel > 0.5)
+
+        if true_positive + true_negative == 0:
+            true_negative = -1
+
+        return {
+            "precision": true_positive / (true_positive + true_negative),
+            "recovery": true_positive / (true_positive + false_positive),
+        }
+
     def evaluate_taskB_recog(self, dataset):
         correct_leftright = 0
         total_leftright = 0
@@ -1177,11 +1249,17 @@ class TransferAlgorithm(Algorithm):
         #     print("Saving taskA weights...")
         #     torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
 
-        print("Training taskB classification")
-        self.train_taskB_class(dataset, val_data, model_configB_class, train_configB_class)
+        # print("Training taskB classification")
+        # self.train_taskB_class(dataset, val_data, model_configB_class, train_configB_class)
+        # if save_path is not None:
+        #     print("Saving taskB weights...")
+        #     torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_class.ptdict")
+
+        print("Training taskB binary")
+        self.train_taskB_binary(dataset, val_data, model_configB_class, train_configB_class)
         if save_path is not None:
             print("Saving taskB weights...")
-            torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_class.ptdict")
+            torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_binary.ptdict")
 
         # dataset = RelationsOracleDataset(train_collection, wv)
         # val_data = RelationsOracleDataset(validation_collection, wv)
@@ -1420,6 +1498,113 @@ class TransferAlgorithm(Algorithm):
 
             print("Evaluating on validation data...")
             val_diagnostics = self.evaluate_taskB_class(val_data)
+
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+    def train_taskB_binary(self, dataset, val_data, model_config, train_config):
+
+        self.taskB_class_model = ShortestDependencyPathRelationsModel(
+            dataset.embedding_size,
+            dataset.wv,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            dataset.no_postags,
+            model_config.postag_size,
+            dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.dropout_chance,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+            1
+        )
+
+        optimizer = optim.Adam(
+            self.taskB_class_model.parameters(),
+            lr=train_config.optimizer.lr,
+        )
+
+        relations_criterion = BCELoss()
+
+        for epoch in range(train_config.epochs):
+            #log variables
+            running_loss_relations = 0
+            train_total_relations = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskB_class_model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, relations = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                self.taskA_model.eval()
+                _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+                positive_rels = relations["pos"]
+                # if epoch == 0:
+                #     shuffle(relations["neg"])
+                negative_rels = relations["neg"]
+                premuted_rels = permutation(positive_rels + negative_rels)
+                rels_loss = 0
+                for origin, destination, y_rel in premuted_rels:
+
+                    X = (
+                        word_inputs.unsqueeze(0),
+                        char_inputs.unsqueeze(0),
+                        postag_inputs.unsqueeze(0),
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    if dataset.relations[y_rel] != "none":
+                        y_rel = torch.tensor([1], dtype = torch.float32)
+                    else:
+                        y_rel = torch.tensor([0], dtype = torch.float32)
+
+                    out_rel = self.taskB_class_model(X).squeeze(0)
+
+                    rels_loss += relations_criterion(out_rel, y_rel)
+                    train_total_relations += 1
+
+                rels_loss.backward()
+                running_loss_relations += rels_loss.item()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskB_binary(train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskB_binary(val_data)
 
             print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
 
