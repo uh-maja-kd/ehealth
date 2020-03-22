@@ -1,18 +1,30 @@
 {
     "taskA": {
-        "epochs": 20,
+        "epochs": 2,
         "optimizer": {
             "lr": 0.001
         }
     },
-    "taskB_recog": {
-        "epochs": 30,
+    "taskB": {
+        "epochs": 2,
         "optimizer": {
             "lr": 0.001
         }
     },
     "taskB_class": {
-        "epochs": 30,
+        "epochs": 2,
+        "optimizer": {
+            "lr": 0.001
+        }
+    },
+    "taskB_recog_oracle": {
+        "epochs": 2,
+        "optimizer": {
+            "lr": 0.001
+        }
+    },
+    "taskB_recog_path": {
+        "epochs": 2,
         "optimizer": {
             "lr": 0.001
         }

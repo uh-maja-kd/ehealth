@@ -907,8 +907,14 @@ class TransferAlgorithm(Algorithm):
 
     def __init__(self):
         self.taskA_model = None
-        self.taskB_recog_model = None
+        self.taskB_model = None
+        self.taskB_recog_model_path = None
+        self.taskB_recog_model_oracle = None
         self.taskB_class_model = None
+
+        builder = ConfigBuilder()
+        model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
+        self.wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
 
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
 
@@ -1052,15 +1058,83 @@ class TransferAlgorithm(Algorithm):
             "entity_tags_accuracy": correct_ent_tags / total_words
         }
 
+    def evaluate_taskB(self, dataset):
+        self.taskA_model.eval()
+        self.taskB_model.eval()
+
+        correct_true_relations = 0
+        total_true_relations = 0
+        correct_false_relations = 0
+        total_false_relations = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            positive_rels = relations["pos"]
+            for origin, destination, y_rel in positive_rels:
+                #positive direction
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model(X)
+                correct_true_relations += int(torch.argmax(out_rel) == y_rel)
+                total_true_relations += 1
+
+            negative_rels = relations["neg"]
+            for origin, destination, y_rel in negative_rels:
+                #positive direction
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model(X)
+                correct_false_relations += int(torch.argmax(out_rel) == y_rel)
+                total_false_relations += 1
+
+        return {
+            "true_relations_accuracy": correct_true_relations / total_true_relations,
+            "false_relations_accuracy": correct_false_relations / total_false_relations
+        }
+
     def evaluate_taskB_class(self, dataset):
         self.taskA_model.eval()
         self.taskB_class_model.eval()
 
         correct_true_relations = 0
         total_true_relations = 0
-        correct_false_relations = 0
-        total_false_relations = 0
-        false_positive_relations = 0
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -1100,33 +1174,13 @@ class TransferAlgorithm(Algorithm):
                 correct_true_relations += int(torch.argmax(out_rel) == y_rel)
                 total_true_relations += 1
 
-            negative_rels = relations["neg"]
-            for origin, destination, y_rel in negative_rels:
-                #positive direction
-                X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0),
-                    out_ent_type,
-                    out_ent_tag,
-                    dependency_inputs.unsqueeze(0),
-                    trees,
-                    origin,
-                    destination
-                )
-
-                out_rel = self.taskB_class_model(X)
-                correct_false_relations += int(torch.argmax(out_rel) == y_rel)
-                total_false_relations += 1
-
         return {
             "true_relations_accuracy": correct_true_relations / total_true_relations,
-            "false_relations_accuracy": correct_false_relations / total_false_relations
         }
 
-    def evaluate_taskB_binary(self, dataset):
+    def evaluate_taskB_recog_path(self, dataset):
         self.taskA_model.eval()
-        self.taskB_class_model.eval()
+        self.taskB_recog_model_path.eval()
 
         true_positive = 0
         true_negative = 0
@@ -1166,7 +1220,7 @@ class TransferAlgorithm(Algorithm):
                     destination
                 )
 
-                out_rel = self.taskB_class_model(X)
+                out_rel = self.taskB_recog_model_path(X)
                 true_positive += int(out_rel > 0.5)
                 false_positive += int(out_rel <= 0.5)
 
@@ -1185,7 +1239,7 @@ class TransferAlgorithm(Algorithm):
                     destination
                 )
 
-                out_rel = self.taskB_class_model(X)
+                out_rel = self.taskB_recog_model_path(X)
                 true_negative += int(out_rel > 0.5)
 
         if true_positive + true_negative == 0:
@@ -1196,7 +1250,7 @@ class TransferAlgorithm(Algorithm):
             "recovery": true_positive / (true_positive + false_positive),
         }
 
-    def evaluate_taskB_recog(self, dataset):
+    def evaluate_taskB_recog_oracle(self, dataset):
         correct_leftright = 0
         total_leftright = 0
         correct_notleftright = 0
@@ -1204,12 +1258,12 @@ class TransferAlgorithm(Algorithm):
         correct_act = 0
         total_act = 0
 
-        self.taskB_recog_model.eval()
+        self.taskB_recog_model_oracle.eval()
         for data in tqdm(dataset):
             *X, y_act, _ = data
             X = [x.unsqueeze(0) for x in X]
 
-            output_act = self.taskB_recog_model(X)
+            output_act = self.taskB_recog_model_oracle(X)
             predicted_act = torch.argmax(output_act, -1)
 
             equals = predicted_act == y_act
@@ -1230,24 +1284,16 @@ class TransferAlgorithm(Algorithm):
             "not_leftright_actions_accuracy": correct_notleftright / total_notleftright
         }
 
-    def train(self, train_collection: Collection, validation_collection: Collection, save_path = None):
-        builder = ConfigBuilder()
-        model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
-        train_configA = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskA
-        model_configB_recog = builder.parse_config('./configs/transfer_models/config_OracleParserModel.json')
-        train_configB_recog = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_recog
-        model_configB_class = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
-        train_configB_class = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_class
 
-        wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
-        dataset = DependencyJointModelDataset(train_collection, wv)
-        val_data = DependencyJointModelDataset(validation_collection, wv)
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
 
         print("Training taskA")
-        self.train_taskA(dataset, val_data, model_configA, train_configA)
-        # if save_path is not None:
-        #     print("Saving taskA weights...")
-        #     torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
+        self.train_taskA(dataset, val_data, self.train_configA)
+        if save_path is not None:
+            print("Saving taskA weights...")
+            torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
 
         # print("Training taskB classification")
         # self.train_taskB_class(dataset, val_data, model_configB_class, train_configB_class)
@@ -1270,7 +1316,15 @@ class TransferAlgorithm(Algorithm):
         #     print("Saving taskB weights...")
         #     torch.save(self.taskB_recog_model.state_dict(), save_path + "transfer_modelB_recog.ptdict")
 
-    def train_taskA(self, dataset, val_data, model_config, train_config):
+
+    def train_taskA(self, train_collection, validation_collection, save_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
+        train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskA
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
         self.taskA_model = StackedBiLSTMCRFModel(
             dataset.embedding_size,
             dataset.wv,
@@ -1283,9 +1337,6 @@ class TransferAlgorithm(Algorithm):
             dataset.no_entity_types,
             dataset.no_entity_tags,
         )
-
-        self.taskA_model.load_state_dict(torch.load("./trained/models/210320/transfer_modelA.ptdict"))
-        return
 
         optimizer = optim.Adam(
             self.taskA_model.parameters(),
@@ -1349,64 +1400,127 @@ class TransferAlgorithm(Algorithm):
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
 
-    def train_taskB_recog(self, dataset, val_data, model_config, train_config):
+        if save_path is not None:
+            print("Saving weights...")
+            torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
 
-        self.taskB_recog_model = OracleParserModel(
-            dataset.word_vector_size,
+    def train_taskB(self, train_collection, validation_collection, save_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+        train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
+        self.taskB_model = ShortestDependencyPathRelationsModel(
+            dataset.embedding_size,
             dataset.wv,
             dataset.no_chars,
             model_config.charencoding_size,
-            model_config.lstm_hidden_size,
+            dataset.no_postags,
+            model_config.postag_size,
+            dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
             model_config.dropout_chance,
-            model_config.dense_hidden_size,
-            dataset.no_actions,
+            dataset.no_entity_types,
+            dataset.no_entity_tags,
+            dataset.no_relations
         )
 
         optimizer = optim.Adam(
-            self.taskB_recog_model.parameters(),
-            lr = train_config.optimizer.lr
+            self.taskB_model.parameters(),
+            lr=train_config.optimizer.lr,
         )
 
-        criterion_act = CrossEntropyLoss(weight=dataset.get_actions_weights())
+        relations_criterion = CrossEntropyLoss()
 
         for epoch in range(train_config.epochs):
-            total_act = 0
-            running_loss_act = 0.0
+            #log variables
+            running_loss_relations = 0
+            train_total_relations = 0
 
-            # train_data = list(dataset.get_shuffled_data())
+            train_data = list(dataset.get_shuffled_data())
 
+            self.taskB_model.train()
             print("Optimizing...")
-            for data in tqdm(dataset):
-                *X, y_act, _ = data
-                X = [x.unsqueeze(0) for x in X]
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, relations = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
 
                 optimizer.zero_grad()
 
-                # forward + backward + optimize
-                self.taskB_recog_model.train()
-                output_act = self.taskB_recog_model(X)
+                self.taskA_model.eval()
+                _, out_ent_type, out_ent_tag = self.taskA_model(X)
 
-                loss_act = criterion_act(output_act, y_act)
-                loss_act.backward()
-                running_loss_act += loss_act.item()
-                total_act += 1
+                positive_rels = relations["pos"]
+                if epoch == 0:
+                    shuffle(relations["neg"])
+                negative_rels = relations["neg"][:2]
+                rels_loss = 0
+                for origin, destination, y_rel in positive_rels + negative_rels:
+
+                    X = (
+                        word_inputs.unsqueeze(0),
+                        char_inputs.unsqueeze(0),
+                        postag_inputs.unsqueeze(0),
+                        out_ent_type,
+                        out_ent_tag,
+                        dependency_inputs.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.taskB_model(X)
+                    rels_loss += relations_criterion(out_rel, y_rel)
+                    train_total_relations += 1
+
+                rels_loss.backward()
+                running_loss_relations += rels_loss.item()
 
                 optimizer.step()
 
             print("Evaluating on training data...")
-            train_diagnostics = self.evaluate_taskB_recog(dataset)
+            train_diagnostics = self.evaluate_taskB(train_data)
 
             print("Evaluating on validation data...")
-            val_diagnostics = self.evaluate_taskB_recog(val_data)
+            val_diagnostics = self.evaluate_taskB(val_data)
 
-            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
+            print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
 
             for key, value in train_diagnostics.items():
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
 
-    def train_taskB_class(self, dataset, val_data, model_config, train_config):
+        if save_path is not None:
+            print("Saving weights...")
+            torch.save(self.taskB_model.state_dict(), save_path + "transfer_modelB.ptdict")
+
+    def train_taskB_class(self, train_collection, validation_collection, save_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+        train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_class
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
 
         self.taskB_class_model = ShortestDependencyPathRelationsModel(
             dataset.embedding_size,
@@ -1466,11 +1580,8 @@ class TransferAlgorithm(Algorithm):
                 _, out_ent_type, out_ent_tag = self.taskA_model(X)
 
                 positive_rels = relations["pos"]
-                if epoch == 0:
-                    shuffle(relations["neg"])
-                negative_rels = relations["neg"][:2]
                 rels_loss = 0
-                for origin, destination, y_rel in positive_rels + negative_rels:
+                for origin, destination, y_rel in positive_rels:
 
                     X = (
                         word_inputs.unsqueeze(0),
@@ -1506,9 +1617,86 @@ class TransferAlgorithm(Algorithm):
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
 
-    def train_taskB_binary(self, dataset, val_data, model_config, train_config):
+        if save_path is not None:
+            print("Saving weights...")
+            torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_class.ptdict")
 
-        self.taskB_class_model = ShortestDependencyPathRelationsModel(
+    def train_taskB_recog_oracle(self, train_collection, validation_collection, save_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_OracleParserModel.json')
+        train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_recog_oracle
+
+        dataset = RelationsOracleDataset(train_collection, self.wv)
+        val_data = RelationsOracleDataset(validation_collection, self.wv)
+
+        self.taskB_recog_model_oracle = OracleParserModel(
+            dataset.word_vector_size,
+            dataset.wv,
+            dataset.no_chars,
+            model_config.charencoding_size,
+            model_config.lstm_hidden_size,
+            model_config.dropout_chance,
+            model_config.dense_hidden_size,
+            dataset.no_actions,
+        )
+
+        optimizer = optim.Adam(
+            self.taskB_recog_model_oracle.parameters(),
+            lr = train_config.optimizer.lr
+        )
+
+        criterion_act = CrossEntropyLoss(weight=dataset.get_actions_weights())
+
+        for epoch in range(train_config.epochs):
+            total_act = 0
+            running_loss_act = 0.0
+
+            # train_data = list(dataset.get_shuffled_data())
+
+            print("Optimizing...")
+            for data in tqdm(dataset):
+                *X, y_act, _ = data
+                X = [x.unsqueeze(0) for x in X]
+
+                optimizer.zero_grad()
+
+                # forward + backward + optimize
+                self.taskB_recog_model_oracle.train()
+                output_act = self.taskB_recog_model_oracle(X)
+
+                loss_act = criterion_act(output_act, y_act)
+                loss_act.backward()
+                running_loss_act += loss_act.item()
+                total_act += 1
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskB_recog_oracle(dataset)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskB_recog_oracle(val_data)
+
+            print(f"[{epoch + 1}] loss_act: {running_loss_act / total_act}")
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+        if save_path is not None:
+            print("Saving weights...")
+            torch.save(self.taskB_recog_model_oracle.state_dict(), save_path + "transfer_modelB_recog_oracle.ptdict")
+
+    def train_taskB_recog_path(self, train_collection, validation_collection, save_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+        train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_recog_path
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
+        self.taskB_recog_model_path = ShortestDependencyPathRelationsModel(
             dataset.embedding_size,
             dataset.wv,
             dataset.no_chars,
@@ -1528,7 +1716,7 @@ class TransferAlgorithm(Algorithm):
         )
 
         optimizer = optim.Adam(
-            self.taskB_class_model.parameters(),
+            self.taskB_recog_model_path.parameters(),
             lr=train_config.optimizer.lr,
         )
 
@@ -1541,7 +1729,7 @@ class TransferAlgorithm(Algorithm):
 
             train_data = list(dataset.get_shuffled_data())
 
-            self.taskB_class_model.train()
+            self.taskB_recog_model_path.train()
             print("Optimizing...")
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations = data
@@ -1590,7 +1778,7 @@ class TransferAlgorithm(Algorithm):
                     else:
                         y_rel = torch.tensor([0], dtype = torch.float32)
 
-                    out_rel = self.taskB_class_model(X).squeeze(0)
+                    out_rel = self.taskB_recog_model_path(X).squeeze(0)
 
                     rels_loss += relations_criterion(out_rel, y_rel)
                     train_total_relations += 1
@@ -1601,10 +1789,10 @@ class TransferAlgorithm(Algorithm):
                 optimizer.step()
 
             print("Evaluating on training data...")
-            train_diagnostics = self.evaluate_taskB_binary(train_data)
+            train_diagnostics = self.evaluate_taskB_recog_path(train_data)
 
             print("Evaluating on validation data...")
-            val_diagnostics = self.evaluate_taskB_binary(val_data)
+            val_diagnostics = self.evaluate_taskB_recog_path(val_data)
 
             print(f"[{epoch + 1}] relations_loss: {running_loss_relations / train_total_relations :0.3}")
 
@@ -1612,6 +1800,10 @@ class TransferAlgorithm(Algorithm):
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+        if save_path is not None:
+            print("Saving taskB weights...")
+            torch.save(self.taskB_recog_model_path.state_dict(), save_path + "transfer_modelB_recog_path.ptdict")
 
 
 if __name__ == "__main__":
