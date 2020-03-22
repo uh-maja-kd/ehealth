@@ -2,13 +2,19 @@
     "taskA": {
         "epochs": 20,
         "optimizer": {
-            "lr": 0.01
+            "lr": 0.001
         }
     },
-    "taskB": {
+    "taskB_recog": {
         "epochs": 30,
         "optimizer": {
-            "lr": 0.01
+            "lr": 0.001
+        }
+    },
+    "taskB_class": {
+        "epochs": 30,
+        "optimizer": {
+            "lr": 0.001
         }
     }
 }

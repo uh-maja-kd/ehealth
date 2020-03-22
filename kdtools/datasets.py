@@ -859,3 +859,40 @@ class DependencyJointModelDataset(
     @property
     def no_relations(self):
         return len(self.relations)
+
+class RelationsOracleDataset(
+    RelationsDependencyParseActionsDataset,
+    EmbeddingComponent,
+    CharEmbeddingComponent,
+    ShufflerComponent
+    ):
+
+    def __init__(self, collection: Collection, wv):
+        RelationsDependencyParseActionsDataset.__init__(self, collection)
+        EmbeddingComponent.__init__(self, wv)
+        CharEmbeddingComponent.__init__(self)
+        ShufflerComponent.__init__(self)
+
+    def _get_word_embedding_data(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+    def _get_char_embedding_data(self, words):
+        max_word_len = max([len(word) for word in words])
+        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
+        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype=torch.float32)
+
+    def encode_word_sequence(self, words):
+        return (
+            self._get_word_embedding_data(words),
+            self._get_char_embedding_data(words)
+        )
+
+    @property
+    def word_vector_size(self):
+        return len(self.wv.vectors[0])
+    @property
+    def no_actions(self):
+        return len(self.actions)
+    @property
+    def no_chars(self):
+        return len(self.abc)

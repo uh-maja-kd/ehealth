@@ -967,4 +967,77 @@ class ShortestDependencyPathRelationsModel(nn.Module):
 
         bilstm_out, _ = self.dep_path_bilstm(bilstm_inputs_in_path)
 
-        return F.softmax(self.relations_decoder(bilstm_out), dim = -1)
+        return F.softmax(self.relations_decoder(bilstm_out), dim=-1)
+
+class OracleParserModel(nn.Module):
+    def __init__(self,
+        word_vector_size,
+        wv,
+        no_chars,
+        char_embedding_size,
+        lstm_hidden_size,
+        dropout_ratio,
+        hidden_dense_size,
+        actions_no,
+    ):
+        super().__init__()
+
+        self.wv = wv
+
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        self.char_embedding = CharCNN(1, no_chars, char_embedding_size)
+
+        lstm_input_size = word_vector_size + char_embedding_size
+        self.lstmencoder_sent = nn.LSTM(lstm_input_size, lstm_hidden_size, batch_first=True)
+        self.lstmencoder_stack = nn.LSTM(lstm_input_size, lstm_hidden_size, batch_first=True)
+
+        self.dropout_sent = nn.Dropout(p = dropout_ratio)
+        self.dropout_stack = nn.Dropout(p = dropout_ratio)
+
+        self.dense_sent = nn.Linear(self.lstmencoder_sent.hidden_size, hidden_dense_size)
+        self.dense_stack = nn.Linear(self.lstmencoder_stack.hidden_size, hidden_dense_size)
+
+        dense_input_size = 2*hidden_dense_size
+
+        self.action_dense = nn.Linear(dense_input_size, actions_no)
+
+    def forward(self, X):
+        stack_word_inputs, stack_char_inputs, sent_word_inputs, sent_char_inputs = X
+
+        word_embeddings_stack = self.word_embedding(stack_word_inputs)
+        word_embeddings_sent = self.word_embedding(sent_word_inputs)
+
+        char_embeddings_stack = self.char_embedding(stack_char_inputs)
+        char_embeddings_sent = self.char_embedding(sent_char_inputs)
+
+        stack_lstm_inputs = torch.cat(
+            (
+                word_embeddings_stack,
+                char_embeddings_stack,
+            ), dim=-1)
+
+        sent_lstm_inputs = torch.cat(
+            (
+                word_embeddings_sent,
+                char_embeddings_sent,
+            ), dim=-1)
+
+        stack_encoded, _ = self.lstmencoder_stack(stack_lstm_inputs)
+        sent_encoded, _ = self.lstmencoder_sent(sent_lstm_inputs)
+
+        stack_encoded = stack_encoded[:, -1, :]
+        sent_encoded = sent_encoded[:, -1, :]
+
+        stack_encoded = self.dropout_stack(stack_encoded)
+        sent_encoded = self.dropout_sent(sent_encoded)
+
+        stack_encoded = torch.tanh(self.dense_stack(stack_encoded))
+        sent_encoded = torch.tanh(self.dense_sent(sent_encoded))
+
+        encoded = torch.cat([stack_encoded, sent_encoded], 1)
+
+        action_out = F.softmax(self.action_dense(encoded), 1)
+
+        return action_out
+
