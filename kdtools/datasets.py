@@ -622,7 +622,8 @@ class DependencyJointModelDataset(
     EntityTypesComponent,
     RelationComponent,
     BMEWOVTagsComponent,
-    ShufflerComponent):
+    ShufflerComponent,
+    BERTComponent):
 
     def __init__(self, collection: Collection, wv):
         print("Loading nlp...")
@@ -636,6 +637,7 @@ class DependencyJointModelDataset(
         RelationComponent.__init__(self, include_none = True)
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
+        BERTComponent.__init__(self)
 
         self.dataxsentence = self._get_sentences_data(collection)
         self.data = self.get_data()
@@ -649,11 +651,13 @@ class DependencyJointModelDataset(
 
             word_embedding_data = self._get_word_embedding_data(words)
             char_embedding_data = self._get_char_embedding_data(words)
+            bert_embedding_data = self._get_bert_embedding_data(sentence.text, spans)
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
             dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
             head_words = self._get_head_words(sentence, spans, dep_tree)
             entities_labels_data = self._get_entities_labels_data(sentence, spans)
+
 
             data.append((
                 sentence,
@@ -662,6 +666,7 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
+                bert_embedding_data,
                 postag_data,
                 dependency_data,
                 dependencytree_data
@@ -700,6 +705,9 @@ class DependencyJointModelDataset(
         max_word_len = max([len(word) for word in words])
         chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
         return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
+
+    def _get_bert_embedding_data(self, sentence, spans):
+        return torch.stack(self.get_bert_embeddings(sentence, spans))
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
@@ -746,6 +754,7 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
+                bert_embedding_data,
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data
@@ -789,6 +798,7 @@ class DependencyJointModelDataset(
             data.append((
                 word_embedding_data,
                 char_embedding_data,
+                bert_embedding_data,
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data,
@@ -819,6 +829,7 @@ class DependencyJointModelDataset(
             (
                 word_embedding_data,
                 char_embedding_data,
+                bert_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data,
@@ -831,6 +842,7 @@ class DependencyJointModelDataset(
                 head_words,
                 word_embedding_data,
                 char_embedding_data,
+                bert_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data
