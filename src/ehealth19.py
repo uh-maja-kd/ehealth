@@ -5,7 +5,7 @@ from tqdm import tqdm
 from itertools import product
 
 from scripts.submit import Algorithm
-from scripts.utils import Collection, Keyphrase, Relation
+from scripts.utils import Collection, Keyphrase, Relation, Sentence
 from python_json_config import ConfigBuilder
 
 from numpy.random import permutation, shuffle
@@ -916,6 +916,56 @@ class TransferAlgorithm(Algorithm):
         model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
         self.wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
 
+        self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
+        self.fake_oracle_dataset = RelationsOracleDataset(Collection([Sentence("Fake news")]), self.wv)
+
+    def load_taskA_model(self, load_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
+
+        self.taskA_model = StackedBiLSTMCRFModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            model_config.charencoding_size,
+            self.fake_dependency_dataset.no_postags,
+            model_config.postag_size,
+            model_config.bilstm_hidden_size,
+            model_config.dropout_chance,
+            self.fake_dependency_dataset.no_entity_types,
+            self.fake_dependency_dataset.no_entity_tags,
+        )
+        if load_path is not None:
+            print("Loading taskA_model weights..")
+            self.taskA_model.load_state_dict(torch.load(load_path + "transfer_modelA.ptdict"))
+
+    def load_taskB_model(self, load_path=None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+
+        self.taskB_model = ShortestDependencyPathRelationsModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            model_config.charencoding_size,
+            self.fake_dependency_dataset.no_postags,
+            model_config.postag_size,
+            self.fake_dependency_dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.dropout_chance,
+            self.fake_dependency_dataset.no_entity_types,
+            self.fake_dependency_dataset.no_entity_tags,
+            self.fake_dependency_dataset.no_relations
+        )
+        if load_path is not None:
+            print("Loading taskB_model weights..")
+            self.taskB_model.load_state_dict(torch.load(load_path + "transfer_modelB.ptdict"))
+
+
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
 
         if taskA:
@@ -924,10 +974,15 @@ class TransferAlgorithm(Algorithm):
         if taskB:
             self.run_taskB(collection)
 
-    def run_taskA(self, collection: Collection):
+    def run_taskA(self, collection: Collection, load_path = None):
         print("Running task A...")
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskA_model(load_path)
+
         self.taskA_model.eval()
-        dataset = DependencyJointModelDataset(collection, self.taskA_model.wv)
 
         entity_id = 0
 
@@ -967,12 +1022,21 @@ class TransferAlgorithm(Algorithm):
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
 
-    def run_taskB(self, collection: Collection):
+    def run_taskB_whole(self, collection: Collection, load_path = None):
         print("Running task B...")
-        self.taskA_model.eval()
-        self.taskB_class_model.eval()
 
-        dataset = DependencyJointModelDataset(collection, self.taskA_model.wv)
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+
+            if self.taskA_model is None:
+                self.load_taskA_model(load_path)
+
+            self.load_taskB_model(load_path)
+
+        self.taskA_model.eval()
+        self.taskB_model.eval()
 
         print("Running...")
         for data in tqdm(dataset.evaluation):
@@ -1013,10 +1077,13 @@ class TransferAlgorithm(Algorithm):
                     destination
                 )
 
-                out_rel = self.taskB_class_model(X)
+                out_rel = self.taskB_model(X)
                 relation = dataset.relations[torch.argmax(out_rel)]
                 if relation != "none":
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
+
+    def run_taskB_separate(self, collection: Collection, rel_class_model = "path"):
+        pass
 
 
     def evaluate_taskA(self, dataset):
