@@ -939,7 +939,7 @@ class TransferAlgorithm(Algorithm):
             print("Loading taskA_model weights..")
             self.taskA_model.load_state_dict(torch.load(load_path + "transfer_modelA.ptdict"))
 
-    def load_taskB_model(self, load_path=None):
+    def load_taskB_model(self, load_path = None):
         builder = ConfigBuilder()
         model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
 
@@ -965,14 +965,86 @@ class TransferAlgorithm(Algorithm):
             print("Loading taskB_model weights..")
             self.taskB_model.load_state_dict(torch.load(load_path + "transfer_modelB.ptdict"))
 
+    def load_taskB_recog_model_oracle(self, load_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_OracleParserModel.json')
 
-    def run(self, collection: Collection, *args, taskA: bool, taskB: bool, **kargs):
+        self.taskB_recog_model_oracle = OracleParserModel(
+            self.fake_oracle_dataset.word_vector_size,
+            self.fake_oracle_dataset.wv,
+            self.fake_oracle_dataset.no_chars,
+            model_config.charencoding_size,
+            model_config.lstm_hidden_size,
+            model_config.dropout_chance,
+            model_config.dense_hidden_size,
+            self.fake_oracle_dataset.no_actions,
+        )
+        if load_path is not None:
+            print("Loading taskB_recog_model_oracle weights..")
+            self.taskB_recog_model_oracle.load_state_dict(torch.load(load_path + "transfer_modelB_recog_oracle.ptdict"))
+
+    def load_taskB_recog_model_path(self, load_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+
+        self.taskB_recog_model_path = ShortestDependencyPathRelationsModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            model_config.charencoding_size,
+            self.fake_dependency_dataset.no_postags,
+            model_config.postag_size,
+            self.fake_dependency_dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.dropout_chance,
+            self.fake_dependency_dataset.no_entity_types,
+            self.fake_dependency_dataset.no_entity_tags,
+            1
+        )
+        if load_path is not None:
+            print("Loading taskB_recog_model_path weights..")
+            self.taskB_recog_model_path.load_state_dict(torch.load(load_path + "transfer_modelB_recog_path.ptdict"))
+
+    def load_taskB_class_model(self, load_path = None):
+        builder = ConfigBuilder()
+        model_config = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+
+        self.taskB_class_model = ShortestDependencyPathRelationsModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            model_config.charencoding_size,
+            self.fake_dependency_dataset.no_postags,
+            model_config.postag_size,
+            self.fake_dependency_dataset.no_dependencies,
+            model_config.dependency_size,
+            model_config.entity_type_size,
+            model_config.entity_tag_size,
+            model_config.bilstm_words_hidden_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.dropout_chance,
+            self.fake_dependency_dataset.no_entity_types,
+            self.fake_dependency_dataset.no_entity_tags,
+            self.fake_dependency_dataset.no_relations
+        )
+        if load_path is not None:
+            print("Loading taskB_class_model weights..")
+            self.taskB_class_model.load_state_dict(torch.load(load_path + "transfer_modelB_class.ptdict"))
+
+
+    def run(self, collection: Collection, *args, taskA: bool, taskB: bool, load_path = None, taskB_mode = "whole", **kargs):
 
         if taskA:
-            self.run_taskA(collection)
+            self.run_taskA(collection, load_path)
 
-        if taskB:
-            self.run_taskB(collection)
+        if taskB_mode == "whole":
+            self.run_taskB_whole(collection, load_path)
+        elif taskB_mode in ["oracle", "path"]:
+            self.run_taskB_separate(collection, load_path, taskB_mode)
 
     def run_taskA(self, collection: Collection, load_path = None):
         print("Running task A...")
@@ -1082,8 +1154,181 @@ class TransferAlgorithm(Algorithm):
                 if relation != "none":
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, relation))
 
-    def run_taskB_separate(self, collection: Collection, rel_class_model = "path"):
-        pass
+    def run_taskB_recog_path(self, collection: Collection, load_path = None):
+        print("Running task B recognition...")
+
+        dataset = DependencyJointModelDataset(collection, self.model.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+
+            self.load_taskB_recog_model_path(load_path)
+
+        self.taskB_recog_model_path.eval()
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    out_ent_type,
+                    out_ent_tag,
+                    dependency_inputs.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_recog_model_path(X).squeeze(0)
+
+                if torch.argmax(out_rel) > 0.5:
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, 'none'))
+
+    def run_taskB_recog_oracle(self, collection: Collection, load_path = None):
+        print("Running task B recognition...")
+
+        dataset = RelationsOracleDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+
+            self.load_taskB_recog_model_oracle(load_path)
+
+        self.taskB_recog_model_oracle.eval()
+
+        print("Running...")
+        it = 0
+        for spans, sentence, state in tqdm(dataset.evaluation):
+            it += 1
+            words = [sentence.text[start:end] for (start, end) in spans]
+            while state[1]:
+                o, t, h, d = state
+
+                X = (
+                    *dataset.encode_word_sequence(["<padding>"]+[words[i - 1] for i in o]),
+                    *dataset.encode_word_sequence([words[i - 1] for i in t])
+                )
+                X = [x.unsqueeze(0) for x in X]
+
+                output_act = self.taskB_recog_model_oracle(X)
+                action = dataset.actions[torch.argmax(output_act)]
+                relation = 'none'
+
+                try:
+                    if action in ["LEFT", "RIGHT"]:
+                        if action == "LEFT":
+                            origidx = t[-1]
+                            destidx = o[-1]
+                        else:
+                            origidx = o[-1]
+                            destidx = t[-1]
+
+                        origins = [kp.id for kp in sentence.keyphrases if spans[origidx-1] in kp.spans]
+                        destinations = [kp.id for kp in sentence.keyphrases if spans[destidx-1] in kp.spans]
+
+                        for origin, destination in product(origins, destinations):
+                            sentence.relations.append(Relation(sentence, origin, destination, relation))
+
+                    dataset.actions_funcs[action]["do"](state, relation)
+                except Exception as e:
+                    # print(e)
+                    print(it)
+                    state[1].clear()
+
+    def run_taskB_class(self, collection: Collection, load_path = None):
+        print("Running task B classification...")
+
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+
+            if self.taskA_model is None:
+                self.load_taskA_model(load_path)
+
+            self.load_taskB_class_model(load_path)
+
+        self.taskA_model.eval()
+        self.taskB_class_model.eval()
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            _, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                for relation in sentence.relations:
+                    if relation.origin == kp_origin.id and relation.destination == kp_destination.id:
+                        X = (
+                            word_inputs.unsqueeze(0),
+                            char_inputs.unsqueeze(0),
+                            postag_inputs.unsqueeze(0),
+                            out_ent_type,
+                            out_ent_tag,
+                            dependency_inputs.unsqueeze(0),
+                            trees,
+                            origin,
+                            destination
+                        )
+
+                        out_rel = self.taskB_class_model(X)
+
+                        relation.label = dataset.relations[torch.argmax(out_rel)]
+
+    def run_taskB_separate(self, collection: Collection, load_path = None, rel_recog_model = "path"):
+        print("Running taskB...")
+
+        if rel_recog_model == "path":
+            self.run_taskB_recog_path(collection, load_path)
+        elif rel_recog_model == "oracle":
+            self.run_taskB_recog_oracle(collection, load_path)
+
+        self.run_taskB_class(collection, load_path)
 
 
     def evaluate_taskA(self, dataset):
@@ -1350,38 +1595,6 @@ class TransferAlgorithm(Algorithm):
             "leftright_actions_accuracy": correct_leftright / total_leftright,
             "not_leftright_actions_accuracy": correct_notleftright / total_notleftright
         }
-
-
-
-        dataset = DependencyJointModelDataset(train_collection, self.wv)
-        val_data = DependencyJointModelDataset(validation_collection, self.wv)
-
-        print("Training taskA")
-        self.train_taskA(dataset, val_data, self.train_configA)
-        if save_path is not None:
-            print("Saving taskA weights...")
-            torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
-
-        # print("Training taskB classification")
-        # self.train_taskB_class(dataset, val_data, model_configB_class, train_configB_class)
-        # if save_path is not None:
-        #     print("Saving taskB weights...")
-        #     torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_class.ptdict")
-
-        print("Training taskB binary")
-        self.train_taskB_binary(dataset, val_data, model_configB_class, train_configB_class)
-        if save_path is not None:
-            print("Saving taskB weights...")
-            torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_binary.ptdict")
-
-        # dataset = RelationsOracleDataset(train_collection, wv)
-        # val_data = RelationsOracleDataset(validation_collection, wv)
-
-        # print("Training taskB recognition")
-        # self.train_taskB_recog(dataset, val_data, model_configB_recog, train_configB_recog)
-        # if save_path is not None:
-        #     print("Saving taskB weights...")
-        #     torch.save(self.taskB_recog_model.state_dict(), save_path + "transfer_modelB_recog.ptdict")
 
 
     def train_taskA(self, train_collection, validation_collection, save_path = None):
