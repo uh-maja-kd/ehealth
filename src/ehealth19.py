@@ -1066,6 +1066,7 @@ class TransferAlgorithm(Algorithm):
                 head_words,
                 word_inputs,
                 char_inputs,
+                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -1075,6 +1076,7 @@ class TransferAlgorithm(Algorithm):
             X = (
                 word_inputs.unsqueeze(0),
                 char_inputs.unsqueeze(0),
+                bert_embeddings.unsqueeze(0),
                 postag_inputs.unsqueeze(0)
             )
 
@@ -1344,6 +1346,7 @@ class TransferAlgorithm(Algorithm):
             (
                 word_inputs,
                 char_inputs,
+                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -1352,6 +1355,7 @@ class TransferAlgorithm(Algorithm):
             X = (
                 word_inputs.unsqueeze(0),
                 char_inputs.unsqueeze(0),
+                bert_embeddings.unsqueeze(0),
                 postag_inputs.unsqueeze(0)
             )
 
@@ -1601,6 +1605,46 @@ class TransferAlgorithm(Algorithm):
             "not_leftright_actions_accuracy": correct_notleftright / total_notleftright
         }
 
+    def train(self, train_collection: Collection, validation_collection: Collection, save_path = None):
+        builder = ConfigBuilder()
+        model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
+        train_configA = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskA
+        model_configB_recog = builder.parse_config('./configs/transfer_models/config_OracleParserModel.json')
+        train_configB_recog = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_recog
+        model_configB_class = builder.parse_config('./configs/transfer_models/config_ShortestDependencyPathRelationsModel.json')
+        train_configB_class = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_class
+
+        wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
+        dataset = DependencyJointModelDataset(train_collection, wv)
+        val_data = DependencyJointModelDataset(validation_collection, wv)
+
+        print("Training taskA")
+        self.train_taskA(dataset, val_data, self.train_configA)
+        if save_path is not None:
+            print("Saving taskA weights...")
+            torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
+
+        # print("Training taskB classification")
+        # self.train_taskB_class(dataset, val_data, model_configB_class, train_configB_class)
+        # if save_path is not None:
+        #     print("Saving taskB weights...")
+        #     torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_class.ptdict")
+
+        print("Training taskB binary")
+        self.train_taskB_binary(dataset, val_data, model_configB_class, train_configB_class)
+        if save_path is not None:
+            print("Saving taskB weights...")
+            torch.save(self.taskB_class_model.state_dict(), save_path + "transfer_modelB_binary.ptdict")
+
+        # dataset = RelationsOracleDataset(train_collection, wv)
+        # val_data = RelationsOracleDataset(validation_collection, wv)
+
+        # print("Training taskB recognition")
+        # self.train_taskB_recog(dataset, val_data, model_configB_recog, train_configB_recog)
+        # if save_path is not None:
+        #     print("Saving taskB weights...")
+        #     torch.save(self.taskB_recog_model.state_dict(), save_path + "transfer_modelB_recog.ptdict")
+
 
     def train_taskA(self, train_collection, validation_collection, save_path = None):
         builder = ConfigBuilder()
@@ -1612,6 +1656,7 @@ class TransferAlgorithm(Algorithm):
 
         self.taskA_model = StackedBiLSTMCRFModel(
             dataset.embedding_size,
+            dataset.bert_vector_size,
             dataset.wv,
             dataset.no_chars,
             model_config.charencoding_size,
@@ -1644,6 +1689,7 @@ class TransferAlgorithm(Algorithm):
                 (
                     word_inputs,
                     char_inputs,
+                    bert_embeddings,
                     postag_inputs,
                     dependency_inputs,
                     trees,
@@ -1652,6 +1698,7 @@ class TransferAlgorithm(Algorithm):
                 X = (
                     word_inputs.unsqueeze(0),
                     char_inputs.unsqueeze(0),
+                    bert_embeddings.unsqueeze(0),
                     postag_inputs.unsqueeze(0)
                 )
 
