@@ -244,15 +244,16 @@ class BERTComponent:
     def __init__(self):
         self.bert_vector_size = 768 
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.model = BertModel.from_pretrained('D:/TESIS/ehealth/kdtools/utils/bert_model')
+        self.model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
         self.model.eval()
 
 
-    def _get_spans_bert_tokens(self, tokenized_sentence):
+    def get_spans_bert_tokens(self, tokenized_sentence):
         spans = []
         inf = 1
         sup = 1
         start = False
+        point = False
         for i in range(len(tokenized_sentence)):
             token = tokenized_sentence[i]
             if token == '[CLS]' or token == '[SEP]':
@@ -260,6 +261,16 @@ class BERTComponent:
             
             if token[0:2] == '##':
                 sup += 1
+                continue
+            
+            elif token == '.' and i != len(tokenized_sentence) - 2:
+                sup += 1
+                point = True
+                continue
+            
+            elif point == True:
+                sup += 1
+                point = False
                 continue
             
             elif start == False:
@@ -272,12 +283,11 @@ class BERTComponent:
                 spans.append((inf, sup))
                 inf = i
                 sup = i
-
-                
+  
         return spans
     
     def _mean_merge(self, token_vec_sums, inf, sup):
-        return torch.mean(torch.stack(token_vec_sums[inf:sup], dim=0))
+        return torch.mean(torch.stack(token_vec_sums[inf:sup]), dim=0)
 
     def _last_merge(self, token_vec_sums, inf, sup):
         return token_vec_sums[sup]
@@ -285,15 +295,16 @@ class BERTComponent:
     def _get_merge_tensors(self, token_vec_sums, spans):
         real_vec = []
         for inf,sup in spans:
-            vec = self._last_merge(token_vec_sums, inf, sup)
+            vec = self._mean_merge(token_vec_sums, inf, sup)
             real_vec.append(vec)
         
         return real_vec
 
-    def get_bert_embeddings(self, sentence):
+    def get_bert_embeddings(self, sentence, spans):
+        words = [sentence[beg:end] for (beg, end) in spans]
         sentence = '[CLS] ' + sentence + ' [SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
-        tokens_spans = self._get_spans_bert_tokens(tokenized_sentence)
+        tokens_spans = self.get_spans_bert_tokens(tokenized_sentence)
         indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
         segments_ids = [1] * len(tokenized_sentence)
 
@@ -310,15 +321,31 @@ class BERTComponent:
         token_vec_sums = []
 
         for token in token_embeddings:
-            sum_vec = torch.sum(token[-4:], dim=0)
+            sum_vec = torch.sum(token[-1:], dim=0)
             token_vec_sums.append(sum_vec)
         
         token_vecs = encoded_layers[11][0]
         sentence_embedding = torch.mean(token_vecs, dim=0)
-        word_bert_embedding = self._get_merge_tensors(token_vec_sums, tokens_spans)
+        bert_embeddings = self._get_merge_tensors(token_vec_sums, tokens_spans)
+        #bert_embeddings.append(sentence_embedding)
+        bert_size = len(bert_embeddings)
+        spans_size = len(spans)
 
+        if bert_size == spans_size:
+            bert_embeddings[-1] = torch.zeros(768)
+        elif bert_size < spans_size:
+            for i in range(len(words)):
+                word = words[i]
+                if word == ' ':
+                    bert_embeddings = bert_embeddings[:i] + [torch.zeros(768)] + bert_embeddings[i:]
+            bert_embeddings.append(torch.zeros(768))
+        
+        bert_size = len(bert_embeddings)
+        if bert_size < spans_size:
+            bert_embeddings.append(torch.zeros(768))
 
-        return word_bert_embedding, sentence_embedding
+        return bert_embeddings
+
 
 
 

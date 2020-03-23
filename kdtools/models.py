@@ -730,6 +730,7 @@ class StackedBiLSTMCRFModel(nn.Module):
     def __init__(
         self,
         embedding_size,
+        bert_embedding_size,
         wv,
         no_chars,
         charencoding_size,
@@ -757,7 +758,7 @@ class StackedBiLSTMCRFModel(nn.Module):
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
 
         #Word-encoding BiLSTMs
-        self.word_bilstm1 = BiLSTM(embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
+        self.word_bilstm1 = BiLSTM(embedding_size + bert_embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
         self.word_bilstm2 = BiLSTM(bilstm_hidden_size, bilstm_hidden_size//2, return_sequence=True)
 
         #OUTPUT
@@ -773,11 +774,14 @@ class StackedBiLSTMCRFModel(nn.Module):
         (
             word_inputs,
             char_inputs,
+            bert_embeddings,
             postag_inputs
         ) = X
 
         #obtaining embeddings vectors
         word_embeddings = self.word_embedding(word_inputs)
+        # print(word_embeddings.shape)
+        # print(bert_embeddings.shape)
         char_embeddings = self.char_embedding(char_inputs)
         postag_embeddings = self.postag_embedding(postag_inputs)
 
@@ -785,6 +789,7 @@ class StackedBiLSTMCRFModel(nn.Module):
             (
                 word_embeddings,
                 char_embeddings,
+                bert_embeddings,
                 postag_embeddings
             ), dim=-1)
 
