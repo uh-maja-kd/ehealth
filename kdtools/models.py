@@ -775,7 +775,6 @@ class StackedBiLSTMCRFModel(nn.Module):
             word_inputs,
             char_inputs,
             bert_embeddings,
-            #sent_embedding,
             postag_inputs
         ) = X
 
@@ -791,7 +790,6 @@ class StackedBiLSTMCRFModel(nn.Module):
                 word_embeddings,
                 char_embeddings,
                 bert_embeddings,
-                #sent_embedding,
                 postag_embeddings
             ), dim=-1)
 

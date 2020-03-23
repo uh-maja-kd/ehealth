@@ -245,10 +245,8 @@ class BERTComponent:
         self.bert_vector_size = 9216 
         self.sent_vector_size = 768
         self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.bio_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
-        self.multilingual_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/second_bert_model')
-        self.bio_bert_model.eval()
-        self.multilingual_bert_model.eval()
+        self.model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
+        self.model.eval()
 
 
     def get_spans_bert_tokens(self, tokenized_sentence):
@@ -289,9 +287,6 @@ class BERTComponent:
   
         return spans
     
-    def _sum_merge(self, token_vec_sums, inf, sup):
-        return torch.sum(torch.stack(token_vec_sums[inf:sup]), dim=0)
-
     def _mean_merge(self, token_vec_sums, inf, sup):
         return torch.mean(torch.stack(token_vec_sums[inf:sup]), dim=0)
 
@@ -330,9 +325,8 @@ class BERTComponent:
         token_vec_sums = []
 
         for token in token_embeddings:
-            #sum_vec = torch.sum(token[-4:], dim=0)
-            cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4], token[-5], token[-6], token[-7], token[-8], token[-9], token[-10], token[-11], token[-12]), dim=0)
-            token_vec_sums.append(cat_vec)
+            sum_vec = torch.sum(token[-1:], dim=0)
+            token_vec_sums.append(sum_vec)
         
         token_vecs = encoded_layers[11][0]
         sentence_embedding = torch.mean(token_vecs, dim=0)
@@ -340,20 +334,19 @@ class BERTComponent:
         #bert_embeddings.append(sentence_embedding)
         bert_size = len(bert_embeddings)
         spans_size = len(spans)
-        pad_tensor = torch.zeros(self.bert_vector_size)
 
         if bert_size == spans_size:
-            bert_embeddings[-1] = pad_tensor
+            bert_embeddings[-1] = torch.zeros(768)
         elif bert_size < spans_size:
             for i in range(len(words)):
                 word = words[i]
                 if word == ' ':
-                    bert_embeddings = bert_embeddings[:i] + [pad_tensor] + bert_embeddings[i:]
-            bert_embeddings.append(pad_tensor)
+                    bert_embeddings = bert_embeddings[:i] + [torch.zeros(768)] + bert_embeddings[i:]
+            bert_embeddings.append(torch.zeros(768))
         
         bert_size = len(bert_embeddings)
         if bert_size < spans_size:
-            bert_embeddings.append(pad_tensor)
+            bert_embeddings.append(torch.zeros(768))
 
         return bert_embeddings
 

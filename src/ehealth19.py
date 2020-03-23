@@ -1067,7 +1067,6 @@ class TransferAlgorithm(Algorithm):
                 word_inputs,
                 char_inputs,
                 bert_embeddings,
-                #sent_embedding,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -1078,7 +1077,6 @@ class TransferAlgorithm(Algorithm):
                 word_inputs.unsqueeze(0),
                 char_inputs.unsqueeze(0),
                 bert_embeddings.unsqueeze(0),
-                #sent_embedding.unsqueeze(0),
                 postag_inputs.unsqueeze(0)
             )
 
@@ -1349,7 +1347,6 @@ class TransferAlgorithm(Algorithm):
                 word_inputs,
                 char_inputs,
                 bert_embeddings,
-                #sent_embedding,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -1359,7 +1356,6 @@ class TransferAlgorithm(Algorithm):
                 word_inputs.unsqueeze(0),
                 char_inputs.unsqueeze(0),
                 bert_embeddings.unsqueeze(0),
-                #sent_embedding.unsqueeze(0),
                 postag_inputs.unsqueeze(0)
             )
 
@@ -1661,7 +1657,6 @@ class TransferAlgorithm(Algorithm):
         self.taskA_model = StackedBiLSTMCRFModel(
             dataset.embedding_size,
             dataset.bert_vector_size,
-            #dataset.sent_vector_size,
             dataset.wv,
             dataset.no_chars,
             model_config.charencoding_size,
@@ -1695,7 +1690,6 @@ class TransferAlgorithm(Algorithm):
                     word_inputs,
                     char_inputs,
                     bert_embeddings,
-                    #sent_embedding,
                     postag_inputs,
                     dependency_inputs,
                     trees,
@@ -1705,7 +1699,6 @@ class TransferAlgorithm(Algorithm):
                     word_inputs.unsqueeze(0),
                     char_inputs.unsqueeze(0),
                     bert_embeddings.unsqueeze(0),
-                    #sent_embedding.unsqueeze(0),
                     postag_inputs.unsqueeze(0)
                 )
 
