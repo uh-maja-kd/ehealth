@@ -6,13 +6,13 @@
         }
     },
     "taskB": {
-        "epochs": 2,
+        "epochs": 25,
         "optimizer": {
             "lr": 0.001
         }
     },
     "taskB_class": {
-        "epochs": 2,
+        "epochs": 25,
         "optimizer": {
             "lr": 0.001
         }
@@ -24,7 +24,7 @@
         }
     },
     "taskB_recog_path": {
-        "epochs": 2,
+        "epochs": 15,
         "optimizer": {
             "lr": 0.001
         }

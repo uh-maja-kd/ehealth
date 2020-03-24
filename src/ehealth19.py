@@ -1557,9 +1557,14 @@ class TransferAlgorithm(Algorithm):
         if true_positive + true_negative == 0:
             true_negative = -1
 
+        precision = true_positive / (true_positive + true_negative)
+        recovery = true_positive / (true_positive + false_positive)
+        f1 = 2*(precision * recovery) / (precision + recovery) if precision + recovery > 0 else 0.
+
         return {
-            "precision": true_positive / (true_positive + true_negative),
-            "recovery": true_positive / (true_positive + false_positive),
+            "precision": precision,
+            "recovery": recovery,
+            "f1": f1
         }
 
     def evaluate_taskB_recog_oracle(self, dataset):
@@ -1752,9 +1757,11 @@ class TransferAlgorithm(Algorithm):
                 positive_rels = relations["pos"]
                 if epoch == 0:
                     shuffle(relations["neg"])
-                negative_rels = relations["neg"][:2]
+                negative_rels = relations["neg"][:len(positive_rels)]
+                premuted_rels = permutation(positive_rels + negative_rels)
                 rels_loss = 0
-                for origin, destination, y_rel in positive_rels + negative_rels:
+                for origin, destination, y_rel in premuted_rels:
+                    y_rel = torch.tensor([y_rel], dtype = torch.long)
 
                     X = (
                         word_inputs.unsqueeze(0),
@@ -2002,6 +2009,8 @@ class TransferAlgorithm(Algorithm):
 
         relations_criterion = BCELoss()
 
+        cv_best_f1 = 0
+
         for epoch in range(train_config.epochs):
             #log variables
             running_loss_relations = 0
@@ -2080,6 +2089,11 @@ class TransferAlgorithm(Algorithm):
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+            if save_path is not None and val_diagnostics["f1"] > cv_best_f1:
+                cv_best_f1 = val_diagnostics["f1"]
+                print("Saving taskB weights...")
+                torch.save(self.taskB_recog_model_path.state_dict(), save_path + "transfer_modelB_recog_path_cv.ptdict")
 
         if save_path is not None:
             print("Saving taskB weights...")
