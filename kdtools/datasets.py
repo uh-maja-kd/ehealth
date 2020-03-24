@@ -667,6 +667,7 @@ class DependencyJointModelDataset(
                 word_embedding_data,
                 char_embedding_data,
                 bert_embedding_data,
+                #sentence_embedding_data,
                 postag_data,
                 dependency_data,
                 dependencytree_data
@@ -707,7 +708,9 @@ class DependencyJointModelDataset(
         return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
 
     def _get_bert_embedding_data(self, sentence, spans):
-        return torch.stack(self.get_bert_embeddings(sentence, spans))
+        #print(sentence)
+        bert_embedding = self.get_bert_embeddings(sentence, spans)
+        return torch.stack(bert_embedding)
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
@@ -755,6 +758,7 @@ class DependencyJointModelDataset(
                 word_embedding_data,
                 char_embedding_data,
                 bert_embedding_data,
+                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data
@@ -799,6 +803,7 @@ class DependencyJointModelDataset(
                 word_embedding_data,
                 char_embedding_data,
                 bert_embedding_data,
+                postag_embedding_data,
                 dependency_data,
                 sentence_tags,
                 relations
@@ -827,6 +832,7 @@ class DependencyJointModelDataset(
                 word_embedding_data,
                 char_embedding_data,
                 bert_embedding_data,
+                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data,
@@ -840,6 +846,7 @@ class DependencyJointModelDataset(
                 word_embedding_data,
                 char_embedding_data,
                 bert_embedding_data,
+                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data
