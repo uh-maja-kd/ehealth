@@ -920,7 +920,7 @@ class ShortestDependencyPathRelationsModel(nn.Module):
         self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
 
         bilstm_path_input_size = bilstm_words_hidden_size + dependency_size + entity_type_size + entity_tag_size
-        self.dep_path_bilstm = BiLSTM(bilstm_path_input_size, bilstm_path_hidden_size // 2, batch_first=True)
+        self.dep_path_bilstm = nn.LSTM(bilstm_path_input_size, bilstm_path_hidden_size, batch_first=True)
 
         self.binary = no_relations == 1
         self.relations_decoder = nn.Linear(bilstm_path_hidden_size, no_relations)
@@ -968,6 +968,7 @@ class ShortestDependencyPathRelationsModel(nn.Module):
         bilstm_inputs_in_path = torch.cat([bilstm_inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
 
         bilstm_out, _ = self.dep_path_bilstm(bilstm_inputs_in_path)
+        bilstm_out = bilstm_out[:, -1, :]
 
         if self.binary:
             return torch.sigmoid(self.relations_decoder(bilstm_out))
