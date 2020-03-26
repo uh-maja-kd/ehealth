@@ -2161,7 +2161,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         self.taskB_model_recog = None
         self.taskB_model_class = None
 
-        self.wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
+        self.wv = Word2VecKeyedVectors.load("./trained/embeddings/wiki_classic/wiki_classic.wv")
 
         self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
 
@@ -2184,7 +2184,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             self.taskA_model.load_state_dict(torch.load(load_path + "modelA.ptdict"))
 
     def load_taskB_recog_model(self, load_path = None):
-        self.taskB_recog_model = TreeBiLSTMPathModel(
+        self.taskB_model_recog = TreeBiLSTMPathModel(
             self.fake_dependency_dataset.embedding_size,
             self.fake_dependency_dataset.wv,
             self.fake_dependency_dataset.no_chars,
@@ -2193,7 +2193,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             50,
             self.fake_dependency_dataset.no_dependencies,
             50,
+            self.fake_dependency_dataset.no_entity_types,
             25,
+            self.fake_dependency_dataset.no_entity_tags,
             25,
             64,
             50,
@@ -2205,10 +2207,10 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
         if load_path is not None:
             print("Loading taskB_recog_model weights..")
-            self.taskB_recog_model.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
+            self.taskB_model_recog.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
 
-    def load_taskB_recog_model(self, load_path = None):
-        self.taskB_recog_model = TreeBiLSTMPathModel(
+    def load_taskB_class_model(self, load_path = None):
+        self.taskB_model_class = TreeBiLSTMPathModel(
             self.fake_dependency_dataset.embedding_size,
             self.fake_dependency_dataset.wv,
             self.fake_dependency_dataset.no_chars,
@@ -2217,7 +2219,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             50,
             self.fake_dependency_dataset.no_dependencies,
             50,
+            self.fake_dependency_dataset.no_entity_types,
             25,
+            self.fake_dependency_dataset.no_entity_tags,
             25,
             200,
             100,
@@ -2229,7 +2233,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
         if load_path is not None:
             print("Loading taskB_class_model weights..")
-            self.taskB_class_model.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
+            self.taskB_model_class.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
 
 
     def evaluate_taskA(self, dataset):
@@ -2245,7 +2249,6 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             (
                 word_inputs,
                 char_inputs,
-                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -2269,7 +2272,110 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
         return {
             "entity_types_accuracy": correct_ent_types / total_words,
-            "entity_tags_accuracy": correct_ent_tags / total_words
+            "entity_tags_accuracy": correct_ent_tags / total_words,
+            "accuracy": (correct_ent_types + correct_ent_tags) / (2*total_words)
+        }
+
+    def evaluate_taskB_recog(self, dataset):
+        self.taskB_model_recog.eval()
+
+        true_positive = 0
+        true_negative = 0
+        false_positive = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            for origin, destination, y_rel in relations["pos"]:
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    y_ent_type.unsqueeze(0),
+                    y_ent_tag.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model_recog(X)
+                true_positive += int(out_rel > 0.5)
+                false_positive += int(out_rel <= 0.5)
+
+            for origin, destination, y_rel in relations["neg"]:
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    y_ent_type.unsqueeze(0),
+                    y_ent_tag.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+                out_rel = self.taskB_model_recog(X)
+                true_negative += int(out_rel > 0.5)
+
+        if true_positive + true_negative == 0:
+                true_negative = -1
+
+        precision = true_positive / (true_positive + true_negative)
+        recovery = true_positive / (true_positive + false_positive)
+        f1 = 2*(precision * recovery) / (precision + recovery) if precision + recovery > 0 else 0.
+
+        return {
+            "precision": precision,
+            "recovery": recovery,
+            "f1": f1
+        }
+
+    def evaluate_taskB_class(self, dataset):
+        self.taskB_model_class.eval()
+
+        correct_true_relations = 0
+        total_true_relations = 0
+        correct_false_relations = 0
+        total_false_relations = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            for origin, destination, y_rel in relations["pos"]:
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    y_ent_type.unsqueeze(0),
+                    y_ent_tag.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model_class(X)
+                correct_true_relations += int(torch.argmax(out_rel) == y_rel)
+                total_true_relations += 1
+        return {
+            "accuracy": correct_true_relations / total_true_relations
         }
 
 
@@ -2287,7 +2393,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
         cv_best_acc = 0
 
-        for epoch in range(25):
+        for epoch in range(1):
             #log variables
             running_loss_ent_type = 0
             running_loss_ent_tag = 0
@@ -2303,7 +2409,6 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 (
                     word_inputs,
                     char_inputs,
-                    bert_embeddings,
                     postag_inputs,
                     dependency_inputs,
                     trees,
@@ -2348,6 +2453,165 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             if save_path is not None and val_diagnostics["accuracy"] > cv_best_acc:
                 print("Saving weights...")
                 torch.save(self.taskA_model.state_dict(), save_path + "modelA.ptdict")
+
+    def train_taskB_recog(self, train_collection, validation_collection, save_path=None):
+        self.load_taskB_recog_model()
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
+        optimizer = optim.Adam(
+            self.taskB_model_recog.parameters(),
+            lr = 0.001
+        )
+
+        criterion = BCELoss()
+
+        best_cv_f1 = 0
+        for epoch in range(1):
+            total_loss = 0
+            total_rels = 0
+
+            self.taskB_model_recog.train()
+            print("Optimizing...")
+            for data in tqdm(dataset):
+                * X, y_ent_type, y_ent_tag, relations = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                optimizer.zero_grad()
+
+                positive_rels = relations["pos"]
+                negative_rels = relations["neg"]
+                premuted_rels = permutation(positive_rels + negative_rels)
+                rels_loss = 0
+                for origin, destination, y_rel in premuted_rels:
+                    X = (
+                        word_inputs.unsqueeze(0),
+                        char_inputs.unsqueeze(0),
+                        postag_inputs.unsqueeze(0),
+                        dependency_inputs.unsqueeze(0),
+                        y_ent_type.unsqueeze(0),
+                        y_ent_tag.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    if dataset.relations[y_rel] != "none":
+                        y_rel = torch.tensor([1], dtype = torch.float32)
+                    else:
+                        y_rel = torch.tensor([0], dtype = torch.float32)
+
+                    out_rel = self.taskB_model_recog(X).squeeze(0)
+
+                    rels_loss += criterion(out_rel, y_rel)
+
+                    total_rels += 1
+
+                total_loss += rels_loss.item()
+                rels_loss.backward()
+                optimizer.step()
+
+
+            print("Evaluating on training data...")
+            results_train = self.evaluate_taskB_recog(dataset)
+            print("Evaluating on validation data...")
+            results_val = self.evaluate_taskB_recog(val_data)
+
+            print(f"[{epoch+1}] loss: {total_loss/total_rels}")
+
+            for key, value in results_train.items():
+                print(f"[{epoch+1}] train_{key}: {value}")
+
+            for key, value in results_val.items():
+                print(f"[{epoch+1}] val_{key}: {value}")
+
+            if results_val["f1"] > best_cv_f1:
+                best_cv_f1 = results_val["f1"]
+                print("Saving taskB recog weights...")
+                torch.save(self.taskB_model_recog.state_dict(),  save_path + "modelB_recog.ptdict")
+
+    def train_taskB_class(self, train_collection, validation_collection, save_path = None):
+        self.load_taskB_class_model()
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
+        optimizer = optim.Adam(
+            self.taskB_model_class.parameters(),
+            lr = 0.001
+        )
+
+        criterion = CrossEntropyLoss()
+
+        best_cv_acc = 0
+        for epoch in range(1):
+            total_loss = 0
+            total_rels = 0
+
+            self.taskB_model_class.train()
+            print("Optimizing...")
+            for data in tqdm(dataset):
+                * X, y_ent_type, y_ent_tag, relations = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                optimizer.zero_grad()
+
+                rels_loss = 0
+                for origin, destination, y_rel in relations["pos"]:
+                    X = (
+                        word_inputs.unsqueeze(0),
+                        char_inputs.unsqueeze(0),
+                        postag_inputs.unsqueeze(0),
+                        dependency_inputs.unsqueeze(0),
+                        y_ent_type.unsqueeze(0),
+                        y_ent_tag.unsqueeze(0),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    out_rel = self.taskB_model_class(X)
+                    loss_positive = criterion(out_rel, y_rel)
+                    rels_loss += loss_positive
+
+                total_loss += rels_loss.item()
+                total_rels += len(relations["pos"])
+                rels_loss.backward()
+                optimizer.step()
+
+
+            print("Evaluating on training data...")
+            results_train = self.evaluate_taskB_class(dataset)
+            print("Evaluating on validation data...")
+            results_val = self.evaluate_taskB_class(val_data)
+
+            print(f"[{epoch+1}] loss: {total_loss/total_rels}")
+
+            for key, value in results_train.items():
+                print(f"[{epoch+1}] train_{key}: {value}")
+
+            for key, value in results_val.items():
+                print(f"[{epoch+1}] val_{key}: {value}")
+
+            if results_val["accuracy"] > best_cv_acc:
+                best_cv_acc = results_val["accuracy"]
+                print("Saving taskB class weights...")
+                torch.save(self.taskB_model_class.state_dict(),  save_path + "modelB_class.ptdict")
 
 
     def run_taskA(self, collection: Collection, load_path = None):
