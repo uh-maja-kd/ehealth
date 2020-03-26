@@ -726,7 +726,7 @@ class ShortestDependencyPathJointModel(nn.Module):
         return F.softmax(self.relations_decoder(dense_encoding), dim = -1)
 
 
-class StackedBiLSTMCRFModel(nn.Module):
+class BERTStackedBiLSTMCRFModel(nn.Module):
     def __init__(
         self,
         embedding_size,
@@ -792,6 +792,82 @@ class StackedBiLSTMCRFModel(nn.Module):
                 char_embeddings,
                 bert_embeddings,
                 #sent_embedding,
+                postag_embeddings
+            ), dim=-1)
+
+        #encoding those inputs
+        bilstm_encoding, _ = self.word_bilstm1(bilstm_inputs)
+        bilstm_encoding, _ = self.word_bilstm2(bilstm_encoding)
+        bilstm_encoding = self.dropout(bilstm_encoding)
+
+        #OUTPUTS
+
+        #entity-types
+        _, entities_types_output = self.entities_types_crf_decoder(bilstm_encoding)
+
+        #entity-tags
+        _, entities_tags_output = self.entities_tags_crf_decoder(bilstm_encoding)
+
+        return bilstm_encoding, entities_types_output, entities_tags_output
+
+class StackedBiLSTMCRFModel(nn.Module):
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        bilstm_hidden_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        ):
+
+        super().__init__()
+
+        self.wv = wv
+
+        #INPUT PROCESSING
+
+        #Word Embedding layer
+        self.word_embedding = PretrainedEmbedding(wv)
+
+        #Char Embedding layer
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+
+        #POSTtag Embedding layer
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+
+        #Word-encoding BiLSTMs
+        self.word_bilstm1 = BiLSTM(embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
+        self.word_bilstm2 = BiLSTM(bilstm_hidden_size, bilstm_hidden_size//2, return_sequence=True)
+
+        #OUTPUT
+        self.dropout = nn.Dropout(dropout_chance)
+
+        #Entity type
+        self.entities_types_crf_decoder = CRF(bilstm_hidden_size, no_entity_types)
+
+        #Entites
+        self.entities_tags_crf_decoder = CRF(bilstm_hidden_size, no_entity_tags)
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            postag_inputs
+        ) = X
+
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+
+        bilstm_inputs = torch.cat(
+            (
+                word_embeddings,
+                char_embeddings,
                 postag_embeddings
             ), dim=-1)
 

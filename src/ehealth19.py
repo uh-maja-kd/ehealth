@@ -32,7 +32,8 @@ from kdtools.models import (
     StackedBiLSTMCRFModel,
     DependencyRelationsModel,
     ShortestDependencyPathRelationsModel,
-    OracleParserModel
+    OracleParserModel,
+    TreeBiLSTMPathModel
 )
 from kdtools.utils.bmewov import BMEWOV
 
@@ -2152,6 +2153,255 @@ class TransferAlgorithm(Algorithm):
         if save_path is not None:
             print("Saving taskB weights...")
             torch.save(self.taskB_recog_model_path.state_dict(), save_path + "transfer_modelB_recog_path.ptdict")
+
+
+class BiLSTMCRFDepPathAlgorithm(Algorithm):
+    def __init__(self):
+        self.taskA_model = None
+        self.taskB_model_recog = None
+        self.taskB_model_class = None
+
+        self.wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
+
+        self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
+
+    def load_taskA_model(self, load_path = None):
+        self.taskA_model = StackedBiLSTMCRFModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            50,
+            self.fake_dependency_dataset.no_postags,
+            50,
+            300,
+            0.2,
+            self.fake_dependency_dataset.no_entity_types,
+            self.fake_dependency_dataset.no_entity_tags,
+        )
+
+        if load_path is not None:
+            print("Loading taskA_model weights..")
+            self.taskA_model.load_state_dict(torch.load(load_path + "modelA.ptdict"))
+
+    def load_taskB_recog_model(self, load_path = None):
+        self.taskB_recog_model = TreeBiLSTMPathModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            50,
+            self.fake_dependency_dataset.no_postags,
+            50,
+            self.fake_dependency_dataset.no_dependencies,
+            50,
+            25,
+            25,
+            64,
+            50,
+            25,
+            0.4,
+            0.2,
+            0.2,
+            1
+        )
+        if load_path is not None:
+            print("Loading taskB_recog_model weights..")
+            self.taskB_recog_model.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
+
+    def load_taskB_recog_model(self, load_path = None):
+        self.taskB_recog_model = TreeBiLSTMPathModel(
+            self.fake_dependency_dataset.embedding_size,
+            self.fake_dependency_dataset.wv,
+            self.fake_dependency_dataset.no_chars,
+            50,
+            self.fake_dependency_dataset.no_postags,
+            50,
+            self.fake_dependency_dataset.no_dependencies,
+            50,
+            25,
+            25,
+            200,
+            100,
+            50,
+            0.4,
+            0.2,
+            0.2,
+            self.fake_dependency_dataset.no_relations - 1
+        )
+        if load_path is not None:
+            print("Loading taskB_class_model weights..")
+            self.taskB_class_model.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
+
+
+    def evaluate_taskA(self, dataset):
+        self.taskA_model.eval()
+
+        correct_ent_types = 0
+        correct_ent_tags = 0
+        total_words = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations = data
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            #entity type
+            correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+            #entity tags
+            correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+            total_words += len(out_ent_tag)
+
+        return {
+            "entity_types_accuracy": correct_ent_types / total_words,
+            "entity_tags_accuracy": correct_ent_tags / total_words
+        }
+
+
+    def train_taskA(self, train_collection, validation_collection, save_path = None):
+
+        self.load_taskA_model()
+
+        dataset = DependencyJointModelDataset(train_collection, self.wv)
+        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+
+        optimizer = optim.Adam(
+            self.taskA_model.parameters(),
+            lr=0.001,
+        )
+
+        cv_best_acc = 0
+
+        for epoch in range(25):
+            #log variables
+            running_loss_ent_type = 0
+            running_loss_ent_tag = 0
+            train_total_words = 0
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskA_model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    bert_embeddings,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+                train_total_words += len(trees)
+
+                loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                running_loss_ent_type += loss_ent_type.item()
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                running_loss_ent_tag += loss_ent_tag.item()
+                loss_ent_tag.backward()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskA(train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskA(val_data)
+
+            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
+            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+            if save_path is not None and val_diagnostics["accuracy"] > cv_best_acc:
+                print("Saving weights...")
+                torch.save(self.taskA_model.state_dict(), save_path + "modelA.ptdict")
+
+
+    def run_taskA(self, collection: Collection, load_path = None):
+        print("Running task A...")
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskA_model(load_path)
+
+        self.taskA_model.eval()
+
+        entity_id = 0
+
+        print("Running...")
+        for data in tqdm(dataset.evaluation):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = data
+
+            #ENTITIES
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+            predicted_entities_types = [dataset.entity_types[idx] for idx in out_ent_type]
+            predicted_entities_tags = [dataset.entity_tags[idx] for idx in out_ent_tag]
+
+            kps = [[sentence_spans[idx] for idx in span_list] for span_list in BMEWOV.decode(predicted_entities_tags)]
+            for kp_spans in kps:
+                count = ValueSortedDict([(type,0) for type in dataset.entity_types])
+                for span in kp_spans:
+                    span_index = sentence_spans.index(span)
+                    span_type = predicted_entities_types[span_index]
+                    count[span_type] -= 1
+                entity_type = list(count.items())[0][0]
+
+                entity_id += 1
+                sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+    def run(self, collection: Collection, *args, taskA: bool, taskB: bool, load_path = None, **kargs):
+        if taskA:
+            self.run_taskA(collection, load_path)
 
 
 if __name__ == "__main__":
