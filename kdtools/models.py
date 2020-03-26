@@ -1053,3 +1053,98 @@ class OracleParserModel(nn.Module):
 
         return action_out
 
+
+class TreeBiLSTMPathModel(nn.Module):
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        no_dependencies,
+        dependency_size,
+        entity_type_size,
+        entity_tag_size,
+        bilstm_path_hidden_size,
+        lstm_path_hidden_size,
+        tree_lstm_hidden_size,
+        bilstm_dropout_chance,
+        lstm_dropout_chance,
+        tree_lstm_dropout_chance,
+        no_relations
+    ):
+        super().__init__()
+
+        self.word_embedding = PretrainedEmbedding(wv)
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+
+        bilstm_input_size = embedding_size, charencoding_size, postag_size, dependency_size, entity_tag_size, entity_type_size
+
+        self.bilstm1 = BiLSTM(bilstm_input_size, bilstm_path_hidden_size//2, batch_first = True, return_sequence=True)
+        self.dropout1 = nn.Dropout(bilstm_dropout_chance)
+        self.bilstm2 = nn.LSTM(bilstm_path_hidden_size, lstm_path_hidden_size, batch_first = True)
+        self.dropout2 = nn.Dropout(lstm_dropout_chance)
+
+        self.tree_lstm_origin = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
+        self.tree_lstm_destination = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
+        self.dropout3 = nn.Dropout(tree_lstm_dropout_chance)
+
+        dense_input_size = lstm_path_hidden_size + 2*tree_lstm_hidden_size
+        self.dense = nn.Linear(dense_input_size, no_relations)
+
+        self.binary = no_relations == 1
+
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            postag_inputs,
+            dependency_inputs,
+            entity_type_inputs,
+            entity_tag_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+        word_embeddings = self.word_embedding(word_inputs)
+        char_embeddings = self.char_embedding(char_inputs)
+        postag_embeddings = self.postag_embedding(postag_inputs)
+        dependency_embeddings = self.dependency_embedding(dependency_inputs)
+        type_embeddings = self.entity_type_embedding(entity_type_inputs)
+        tag_embeddings = self.entity_tag_embedding(entity_tag_inputs)
+
+        inputs = torch.cat([
+            word_embeddings,
+            char_embeddings,
+            postag_embeddings,
+            dependency_embeddings,
+            type_embeddings,
+            tag_embeddings
+        ], dim = -1)
+
+        dep_path = Tree.path(trees[origin], trees[destination])
+        bilstm_inputs_in_path = torch.cat([inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+
+        path_encoded, _ = self.bilstm1(bilstm_inputs_in_path)
+        path_encoded = self.dropout1(path_encoded)
+        path_encoded, _ = self.bilstm2(path_encoded)
+        path_encoded = path_encoded[:,-1,:]
+        path_encoded = self.dropout2(path_encoded)
+
+        origin_tree_encoding = self.tree_lstm_origin(trees[origin], inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm_destination(trees[destination], inputs.squeeze(0))[1]
+
+        encoding = torch.cat([origin_tree_encoding, destination_tree_encoding, path_encoded], dim = -1)
+        encoding = self.dropout3(encoding)
+
+        if self.binary:
+            return torch.sigmoid(self.dense(encoding))
+        return F.softmax(self.dense(encoding), dim=-1)
