@@ -1141,7 +1141,9 @@ class TreeBiLSTMPathModel(nn.Module):
         postag_size,
         no_dependencies,
         dependency_size,
+        no_entity_types,
         entity_type_size,
+        no_entity_tags,
         entity_tag_size,
         bilstm_path_hidden_size,
         lstm_path_hidden_size,
@@ -1160,7 +1162,7 @@ class TreeBiLSTMPathModel(nn.Module):
         self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
         self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
 
-        bilstm_input_size = embedding_size, charencoding_size, postag_size, dependency_size, entity_tag_size, entity_type_size
+        bilstm_input_size = embedding_size + charencoding_size + postag_size + dependency_size + entity_tag_size + entity_type_size
 
         self.bilstm1 = BiLSTM(bilstm_input_size, bilstm_path_hidden_size//2, batch_first = True, return_sequence=True)
         self.dropout1 = nn.Dropout(bilstm_dropout_chance)
