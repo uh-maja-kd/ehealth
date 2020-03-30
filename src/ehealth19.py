@@ -2197,9 +2197,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             25,
             self.fake_dependency_dataset.no_entity_tags,
             25,
-            64,
+            200,
+            100,
             50,
-            25,
             0.4,
             0.2,
             0.2,
@@ -2552,7 +2552,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         criterion = CrossEntropyLoss()
 
         best_cv_acc = 0
-        for epoch in range(1):
+        for epoch in range(30):
             total_loss = 0
             total_rels = 0
 
@@ -2634,7 +2634,6 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 head_words,
                 word_inputs,
                 char_inputs,
-                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
                 trees
@@ -2662,6 +2661,99 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+    def run_taskB_recog(self, collection: Collection, load_path = None):
+        print("Running task B recognition...")
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskB_recog_model(load_path)
+
+        self.taskB_model_recog.eval()
+
+        for eval_data, data in tqdm(zip(dataset.evaluation, dataset)):
+            (
+                sentence,
+                _,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = eval_data
+
+            *p, y_ent_type, y_ent_tag, _ = data
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    postag_inputs.unsqueeze(0),
+                    dependency_inputs.unsqueeze(0),
+                    y_ent_type.unsqueeze(0),
+                    y_ent_tag.unsqueeze(0),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model_recog(X).squeeze(0)
+
+                if out_rel > 0.5:
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, 'none'))
+
+    def run_taskB_class(self, collection: Collection, load_path = None):
+        print("Running task B classification...")
+        dataset = DependencyJointModelDataset(collection, self.wv)
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskB_class_model(load_path)
+
+        self.taskB_model_class.eval()
+
+        for eval_data, data in tqdm(zip(dataset.evaluation, dataset)):
+            (
+                sentence,
+                _,
+                head_words,
+                word_inputs,
+                char_inputs,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = eval_data
+
+            *p, y_ent_type, y_ent_tag, _ = data
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                for relation in sentence.relations:
+                    if relation.origin == kp_origin.id and relation.destination == kp_destination.id:
+                        X = (
+                            word_inputs.unsqueeze(0),
+                            char_inputs.unsqueeze(0),
+                            postag_inputs.unsqueeze(0),
+                            dependency_inputs.unsqueeze(0),
+                            y_ent_type.unsqueeze(0),
+                            y_ent_tag.unsqueeze(0),
+                            trees,
+                            origin,
+                            destination
+                        )
+
+                        out_rel = self.taskB_model_class(X)
+
+                        relation.label = dataset.relations[torch.argmax(out_rel)]
 
     def run(self, collection: Collection, *args, taskA: bool, taskB: bool, load_path = None, **kargs):
         if taskA:

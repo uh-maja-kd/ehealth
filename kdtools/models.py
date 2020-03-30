@@ -1169,8 +1169,7 @@ class TreeBiLSTMPathModel(nn.Module):
         self.bilstm2 = nn.LSTM(bilstm_path_hidden_size, lstm_path_hidden_size, batch_first = True)
         self.dropout2 = nn.Dropout(lstm_dropout_chance)
 
-        self.tree_lstm_origin = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
-        self.tree_lstm_destination = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
+        self.tree_lstm = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
         self.dropout3 = nn.Dropout(tree_lstm_dropout_chance)
 
         dense_input_size = lstm_path_hidden_size + 2*tree_lstm_hidden_size
@@ -1217,8 +1216,8 @@ class TreeBiLSTMPathModel(nn.Module):
         path_encoded = path_encoded[:,-1,:]
         path_encoded = self.dropout2(path_encoded)
 
-        origin_tree_encoding = self.tree_lstm_origin(trees[origin], inputs.squeeze(0))[1]
-        destination_tree_encoding = self.tree_lstm_destination(trees[destination], inputs.squeeze(0))[1]
+        origin_tree_encoding = self.tree_lstm(trees[origin], inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm(trees[destination], inputs.squeeze(0))[1]
 
         encoding = torch.cat([origin_tree_encoding, destination_tree_encoding, path_encoded], dim = -1)
         encoding = self.dropout3(encoding)
