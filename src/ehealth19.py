@@ -2243,6 +2243,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         correct_ent_tags = 0
         total_words = 0
 
+        running_loss_ent_type = 0
+        running_loss_ent_tag = 0
+
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
 
@@ -2262,6 +2265,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
 
+            loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+            running_loss_ent_type += loss_ent_type.item()
+
+            loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+            running_loss_ent_tag += loss_ent_tag.item()
+
             #entity type
             correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
 
@@ -2271,6 +2280,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             total_words += len(out_ent_tag)
 
         return {
+            "loss": (running_loss_ent_type + running_loss_ent_tag) / total_words,
+            "loss_entity_type": running_loss_ent_type / total_words,
+            "loss_entity_tag": running_loss_ent_tag / total_words,
             "entity_types_accuracy": correct_ent_types / total_words,
             "entity_tags_accuracy": correct_ent_tags / total_words,
             "accuracy": (correct_ent_types + correct_ent_tags) / (2*total_words)
@@ -2282,6 +2294,10 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         true_positive = 0
         true_negative = 0
         false_positive = 0
+        total_loss = 0
+        total_rels = 0
+
+        criterion = BCELoss()
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2307,7 +2323,11 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     destination
                 )
 
-                out_rel = self.taskB_model_recog(X)
+                y_rel = torch.tensor([1], dtype = torch.float32)
+                out_rel = self.taskB_model_recog(X).squeeze(0)
+
+                total_loss += criterion(out_rel, y_rel).item()
+                total_rels += 1
                 true_positive += int(out_rel > 0.5)
                 false_positive += int(out_rel <= 0.5)
 
@@ -2323,7 +2343,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     origin,
                     destination
                 )
-                out_rel = self.taskB_model_recog(X)
+
+                y_rel = torch.tensor([0], dtype = torch.float32)
+                out_rel = self.taskB_model_recog(X).squeeze(0)
+
+                total_loss += criterion(out_rel, y_rel).item()
+                total_rels += 1
                 true_negative += int(out_rel > 0.5)
 
         if true_positive + true_negative == 0:
@@ -2334,6 +2359,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         f1 = 2*(precision * recovery) / (precision + recovery) if precision + recovery > 0 else 0.
 
         return {
+            "loss": total_loss / total_rels,
             "precision": precision,
             "recovery": recovery,
             "f1": f1
@@ -2346,6 +2372,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         total_true_relations = 0
         correct_false_relations = 0
         total_false_relations = 0
+        total_loss = 0
+
+        criterion = CrossEntropyLoss()
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2372,9 +2401,13 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 )
 
                 out_rel = self.taskB_model_class(X)
+
+                total_loss += criterion(out_rel, y_rel).item()
                 correct_true_relations += int(torch.argmax(out_rel) == y_rel)
                 total_true_relations += 1
+
         return {
+            "loss": total_loss / total_true_relations,
             "accuracy": correct_true_relations / total_true_relations
         }
 
@@ -2392,13 +2425,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
 
         cv_best_acc = 0
+        history = {
+            "train": [],
+            "validation": []
+        }
 
         for epoch in range(1):
-            #log variables
-            running_loss_ent_type = 0
-            running_loss_ent_tag = 0
-            train_total_words = 0
-
             train_data = list(dataset.get_shuffled_data())
 
             self.taskA_model.train()
@@ -2424,26 +2456,21 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
 
-                train_total_words += len(trees)
-
                 loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
-                running_loss_ent_type += loss_ent_type.item()
                 loss_ent_type.backward(retain_graph=True)
 
                 loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
-                running_loss_ent_tag += loss_ent_tag.item()
                 loss_ent_tag.backward()
 
                 optimizer.step()
 
             print("Evaluating on training data...")
             train_diagnostics = self.evaluate_taskA(train_data)
+            history["train"].append(train_diagnostics)
 
             print("Evaluating on validation data...")
             val_diagnostics = self.evaluate_taskA(val_data)
-
-            print(f"[{epoch + 1}] ent_type_loss: {running_loss_ent_type / train_total_words :0.3}")
-            print(f"[{epoch + 1}] ent_tag_loss: {running_loss_ent_tag / train_total_words :0.3}")
+            history["validation"].append(val_diagnostics)
 
             for key, value in train_diagnostics.items():
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
@@ -2453,6 +2480,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             if save_path is not None and val_diagnostics["accuracy"] > cv_best_acc:
                 print("Saving weights...")
                 torch.save(self.taskA_model.state_dict(), save_path + "modelA.ptdict")
+
+        torch.save(history, save_path + "modelA.hst")
+        return history
 
     def train_taskB_recog(self, train_collection, validation_collection, save_path=None):
         self.load_taskB_recog_model()
@@ -2468,10 +2498,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         criterion = BCELoss()
 
         best_cv_f1 = 0
-        for epoch in range(1):
-            total_loss = 0
-            total_rels = 0
+        history = {
+            "train": [],
+            "validation": []
+        }
 
+        for epoch in range(1):
             self.taskB_model_recog.train()
             print("Optimizing...")
             for data in tqdm(dataset):
@@ -2513,19 +2545,17 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
                     rels_loss += criterion(out_rel, y_rel)
 
-                    total_rels += 1
-
-                total_loss += rels_loss.item()
                 rels_loss.backward()
                 optimizer.step()
 
 
             print("Evaluating on training data...")
             results_train = self.evaluate_taskB_recog(dataset)
+            history["train"].append(results_train)
+
             print("Evaluating on validation data...")
             results_val = self.evaluate_taskB_recog(val_data)
-
-            print(f"[{epoch+1}] loss: {total_loss/total_rels}")
+            history["validation"].append(results_val)
 
             for key, value in results_train.items():
                 print(f"[{epoch+1}] train_{key}: {value}")
@@ -2536,7 +2566,10 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             if results_val["f1"] > best_cv_f1:
                 best_cv_f1 = results_val["f1"]
                 print("Saving taskB recog weights...")
-                torch.save(self.taskB_model_recog.state_dict(),  save_path + "modelB_recog.ptdict")
+                torch.save(self.taskB_model_recog.state_dict(), save_path + "modelB_recog.ptdict")
+
+        torch.save(history, save_path + "modelB_recog.hst")
+        return history
 
     def train_taskB_class(self, train_collection, validation_collection, save_path = None):
         self.load_taskB_class_model()
@@ -2552,10 +2585,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         criterion = CrossEntropyLoss()
 
         best_cv_acc = 0
-        for epoch in range(30):
-            total_loss = 0
-            total_rels = 0
+        history = {
+            "train": [],
+            "validation": []
+        }
 
+        for epoch in range(1):
             self.taskB_model_class.train()
             print("Optimizing...")
             for data in tqdm(dataset):
@@ -2589,18 +2624,17 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     loss_positive = criterion(out_rel, y_rel)
                     rels_loss += loss_positive
 
-                total_loss += rels_loss.item()
-                total_rels += len(relations["pos"])
                 rels_loss.backward()
                 optimizer.step()
 
 
             print("Evaluating on training data...")
             results_train = self.evaluate_taskB_class(dataset)
+            history["train"].append(results_train)
+
             print("Evaluating on validation data...")
             results_val = self.evaluate_taskB_class(val_data)
-
-            print(f"[{epoch+1}] loss: {total_loss/total_rels}")
+            history["validation"].append(results_val)
 
             for key, value in results_train.items():
                 print(f"[{epoch+1}] train_{key}: {value}")
@@ -2611,7 +2645,10 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             if results_val["accuracy"] > best_cv_acc:
                 best_cv_acc = results_val["accuracy"]
                 print("Saving taskB class weights...")
-                torch.save(self.taskB_model_class.state_dict(),  save_path + "modelB_class.ptdict")
+                torch.save(self.taskB_model_class.state_dict(), save_path + "modelB_class.ptdict")
+
+        torch.save(history, save_path + "modelB_class.hst")
+        return history
 
 
     def run_taskA(self, collection: Collection, load_path = None):
