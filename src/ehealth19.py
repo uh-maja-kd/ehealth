@@ -2563,12 +2563,13 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             for key, value in results_val.items():
                 print(f"[{epoch+1}] val_{key}: {value}")
 
-            if results_val["f1"] > best_cv_f1:
+            if save_path is not None and results_val["f1"] > best_cv_f1:
                 best_cv_f1 = results_val["f1"]
                 print("Saving taskB recog weights...")
                 torch.save(self.taskB_model_recog.state_dict(), save_path + "modelB_recog.ptdict")
 
-        torch.save(history, save_path + "modelB_recog.hst")
+        if save_path is not None:
+            torch.save(history, save_path + "modelB_recog.hst")
         return history
 
     def train_taskB_class(self, train_collection, validation_collection, save_path = None):
@@ -2590,7 +2591,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             "validation": []
         }
 
-        for epoch in range(1):
+        for epoch in range(40):
             self.taskB_model_class.train()
             print("Optimizing...")
             for data in tqdm(dataset):
@@ -2642,12 +2643,13 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             for key, value in results_val.items():
                 print(f"[{epoch+1}] val_{key}: {value}")
 
-            if results_val["accuracy"] > best_cv_acc:
+            if save_path is not None and results_val["accuracy"] > best_cv_acc:
                 best_cv_acc = results_val["accuracy"]
                 print("Saving taskB class weights...")
                 torch.save(self.taskB_model_class.state_dict(), save_path + "modelB_class.ptdict")
 
-        torch.save(history, save_path + "modelB_class.hst")
+        if save_path is not None:
+            torch.save(history, save_path + "modelB_class.hst")
         return history
 
 
