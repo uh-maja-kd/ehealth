@@ -2156,7 +2156,13 @@ class TransferAlgorithm(Algorithm):
 
 
 class BiLSTMCRFDepPathAlgorithm(Algorithm):
-    def __init__(self):
+    def __init__(self, ablation = {
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }):
         self.taskA_model = None
         self.taskB_model_recog = None
         self.taskB_model_class = None
@@ -2164,6 +2170,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         self.wv = Word2VecKeyedVectors.load("./trained/embeddings/wiki_classic/wiki_classic.wv")
 
         self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
+
+        self.ablation = ablation
 
     def load_taskA_model(self, load_path = None):
         self.taskA_model = StackedBiLSTMCRFModel(
@@ -2203,7 +2211,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             0.4,
             0.2,
             0.2,
-            1
+            1,
+            ablation = self.ablation
         )
         if load_path is not None:
             print("Loading taskB_recog_model weights..")
@@ -2229,7 +2238,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             0.4,
             0.2,
             0.2,
-            self.fake_dependency_dataset.no_relations - 1
+            self.fake_dependency_dataset.no_relations - 1,
+            ablation = self.ablation
         )
         if load_path is not None:
             print("Loading taskB_class_model weights..")
