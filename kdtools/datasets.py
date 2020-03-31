@@ -611,6 +611,43 @@ class JointModelDataset(
         return len(self.relations)
 
 
+class RelationsOracleDataset(
+    RelationsDependencyParseActionsDataset,
+    EmbeddingComponent,
+    CharEmbeddingComponent,
+    ShufflerComponent
+    ):
+
+    def __init__(self, collection: Collection, wv):
+        RelationsDependencyParseActionsDataset.__init__(self, collection)
+        EmbeddingComponent.__init__(self, wv)
+        CharEmbeddingComponent.__init__(self)
+        ShufflerComponent.__init__(self)
+
+    def _get_word_embedding_data(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+    def _get_char_embedding_data(self, words):
+        max_word_len = max([len(word) for word in words])
+        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
+        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype=torch.float32)
+
+    def encode_word_sequence(self, words):
+        return (
+            self._get_word_embedding_data(words),
+            self._get_char_embedding_data(words)
+        )
+
+    @property
+    def word_vector_size(self):
+        return len(self.wv.vectors[0])
+    @property
+    def no_actions(self):
+        return len(self.actions)
+    @property
+    def no_chars(self):
+        return len(self.abc)
+
 class DependencyJointModelDataset(
     Dataset,
     TokenizerComponent,
@@ -623,7 +660,7 @@ class DependencyJointModelDataset(
     RelationComponent,
     BMEWOVTagsComponent,
     ShufflerComponent,
-    BERTComponent):
+    ):
 
     def __init__(self, collection: Collection, wv):
         print("Loading nlp...")
@@ -637,7 +674,6 @@ class DependencyJointModelDataset(
         RelationComponent.__init__(self, include_none = True)
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
-        BERTComponent.__init__(self)
 
         self.dataxsentence = self._get_sentences_data(collection)
         self.data = self.get_data()
@@ -651,7 +687,6 @@ class DependencyJointModelDataset(
 
             word_embedding_data = self._get_word_embedding_data(words)
             char_embedding_data = self._get_char_embedding_data(words)
-            bert_embedding_data = self._get_bert_embedding_data(sentence.text, spans)
             postag_data = self._get_postag_data(sentence.text)
             dependency_data = self._get_dependency_data(sentence.text)
             dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
@@ -666,8 +701,6 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
-                bert_embedding_data,
-                #sentence_embedding_data,
                 postag_data,
                 dependency_data,
                 dependencytree_data
@@ -706,11 +739,6 @@ class DependencyJointModelDataset(
         max_word_len = max([len(word) for word in words])
         chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
         return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
-
-    def _get_bert_embedding_data(self, sentence, spans):
-        #print(sentence)
-        bert_embedding = self.get_bert_embeddings(sentence, spans)
-        return torch.stack(bert_embedding)
 
     def _get_postag_data(self, sentence):
         return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
@@ -757,8 +785,6 @@ class DependencyJointModelDataset(
                 entities_labels_data,
                 word_embedding_data,
                 char_embedding_data,
-                bert_embedding_data,
-                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data
@@ -781,7 +807,9 @@ class DependencyJointModelDataset(
             positive_relations = [
                 (
                     entity_heads[relation.origin],
+                    # [sentence_spans.index(span) for span in sentence.find_keyphrase(relation.origin).spans],
                     entity_heads[relation.destination],
+                    # [sentence_spans.index(span) for span in sentence.find_keyphrase(relation.destination).spans],
                     torch.LongTensor([self.relation2index[relation.label]])
                 )
                 for relation in sentence.relations \
@@ -790,7 +818,14 @@ class DependencyJointModelDataset(
 
             paired_tokens = [(orig, dest) for orig, dest, _ in positive_relations]
             indices = list(range(sent_len))
-            negative_relations = [(i, j, torch.LongTensor([self.relation2index['none']])) \
+            negative_relations = [
+                (
+                    i,
+                    # [sentence_spans.index(span) for span in head_words[i][0].spans],
+                    j,
+                    # [sentence_spans.index(span) for span in head_words[j][0].spans],
+                    torch.LongTensor([self.relation2index['none']])
+                ) \
                 for i, j in list(product(indices, indices)) \
                     if (i, j) not in paired_tokens and len(head_words[i]) > 0 and len(head_words[j]) > 0]
 
@@ -802,8 +837,6 @@ class DependencyJointModelDataset(
             data.append((
                 word_embedding_data,
                 char_embedding_data,
-                bert_embedding_data,
-                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data,
@@ -834,8 +867,6 @@ class DependencyJointModelDataset(
             (
                 word_embedding_data,
                 char_embedding_data,
-                bert_embedding_data,
-                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data,
@@ -848,8 +879,6 @@ class DependencyJointModelDataset(
                 head_words,
                 word_embedding_data,
                 char_embedding_data,
-                bert_embedding_data,
-                #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data
@@ -878,40 +907,3 @@ class DependencyJointModelDataset(
     @property
     def no_relations(self):
         return len(self.relations)
-
-class RelationsOracleDataset(
-    RelationsDependencyParseActionsDataset,
-    EmbeddingComponent,
-    CharEmbeddingComponent,
-    ShufflerComponent
-    ):
-
-    def __init__(self, collection: Collection, wv):
-        RelationsDependencyParseActionsDataset.__init__(self, collection)
-        EmbeddingComponent.__init__(self, wv)
-        CharEmbeddingComponent.__init__(self)
-        ShufflerComponent.__init__(self)
-
-    def _get_word_embedding_data(self, words):
-        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
-
-    def _get_char_embedding_data(self, words):
-        max_word_len = max([len(word) for word in words])
-        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
-        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype=torch.float32)
-
-    def encode_word_sequence(self, words):
-        return (
-            self._get_word_embedding_data(words),
-            self._get_char_embedding_data(words)
-        )
-
-    @property
-    def word_vector_size(self):
-        return len(self.wv.vectors[0])
-    @property
-    def no_actions(self):
-        return len(self.actions)
-    @property
-    def no_chars(self):
-        return len(self.abc)
