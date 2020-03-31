@@ -1151,9 +1151,18 @@ class TreeBiLSTMPathModel(nn.Module):
         bilstm_dropout_chance,
         lstm_dropout_chance,
         tree_lstm_dropout_chance,
-        no_relations
+        no_relations,
+        ablation = {
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }
     ):
         super().__init__()
+
+        self.ablation = ablation
 
         self.word_embedding = PretrainedEmbedding(wv)
         self.char_embedding = CharCNN(1, no_chars, charencoding_size)
@@ -1162,7 +1171,14 @@ class TreeBiLSTMPathModel(nn.Module):
         self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
         self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
 
-        bilstm_input_size = embedding_size + charencoding_size + postag_size + dependency_size + entity_tag_size + entity_type_size
+        bilstm_input_size = (
+            embedding_size +
+            (charencoding_size if ablation["chars_info"] else 0) +
+            (postag_size if ablation["postag"] else 0) +
+            (dependency_size if ablation["dependency"] else 0) +
+            (entity_type_size if ablation["entity_type"] else 0) +
+            (entity_tag_size if ablation["entity_tag"] else 0)
+        )
 
         self.bilstm1 = BiLSTM(bilstm_input_size, bilstm_path_hidden_size//2, batch_first = True, return_sequence=True)
         self.dropout1 = nn.Dropout(bilstm_dropout_chance)
@@ -1192,20 +1208,20 @@ class TreeBiLSTMPathModel(nn.Module):
         ) = X
 
         word_embeddings = self.word_embedding(word_inputs)
-        char_embeddings = self.char_embedding(char_inputs)
-        postag_embeddings = self.postag_embedding(postag_inputs)
-        dependency_embeddings = self.dependency_embedding(dependency_inputs)
-        type_embeddings = self.entity_type_embedding(entity_type_inputs)
-        tag_embeddings = self.entity_tag_embedding(entity_tag_inputs)
+        char_embeddings = self.char_embedding(char_inputs) if self.ablation["chars_info"] else None
+        postag_embeddings = self.postag_embedding(postag_inputs) if self.ablation["postag"] else None
+        dependency_embeddings = self.dependency_embedding(dependency_inputs) if self.ablation["dependency"] else None
+        type_embeddings = self.entity_type_embedding(entity_type_inputs) if self.ablation["entity_type"] else None
+        tag_embeddings = self.entity_tag_embedding(entity_tag_inputs) if self.ablation["entity_tag"] else None
 
-        inputs = torch.cat([
+        inputs = torch.cat([x for x in [
             word_embeddings,
             char_embeddings,
             postag_embeddings,
             dependency_embeddings,
             type_embeddings,
             tag_embeddings
-        ], dim = -1)
+        ] if x is not None], dim = -1)
 
         dep_path = Tree.path(trees[origin], trees[destination])
         bilstm_inputs_in_path = torch.cat([inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
