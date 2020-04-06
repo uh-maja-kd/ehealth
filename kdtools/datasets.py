@@ -920,7 +920,7 @@ class DependencyBERTJointModelDataset(
     BMEWOVTagsComponent,
     ShufflerComponent,
     BERTComponent,
-    GazzeterComponent):
+    ):
 
     def __init__(self, collection: Collection, wv):
         print("Loading nlp...")
@@ -935,7 +935,7 @@ class DependencyBERTJointModelDataset(
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
         BERTComponent.__init__(self)
-        GazzeterComponent.__init__(self)
+        #GazzeterComponent.__init__(self)
 
         self.dataxsentence = self._get_sentences_data(collection)
         self.data = self.get_data()
@@ -969,7 +969,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_data,
-                dependency_data,
+                #dependency_data,
                 dependencytree_data
             ))
 
@@ -1064,7 +1064,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                dependency_data,
+                #dependency_data,
                 dependencytree_data
             ) = sent_data
 
@@ -1110,10 +1110,10 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                dependency_data,
+                #dependency_data,
                 dependencytree_data,
-                sentence.text,
-                sentence_spans,
+                #sentence.text,
+                #sentence_spans,
                 sentence_labels,
                 sentence_tags,
                 relations,
@@ -1145,10 +1145,10 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                dependency_embedding_data,
+                #dependency_embedding_data,
                 dependencytree_data,
-                sentence.text,
-                sentence_spans,
+                #sentence.text,
+                #sentence_spans,
                 *extra
             ) = data
 
@@ -1162,7 +1162,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                dependency_embedding_data,
+                #dependency_embedding_data,
                 dependencytree_data
                 #sentence.text,
                 #sentence_spans
@@ -1173,12 +1173,12 @@ class DependencyBERTJointModelDataset(
     @property
     def embedding_size(self):
         return self.word_vector_size
-    @property
-    def embedding_size(self):
-        return self.gazzetter_vector_tag_size
-    @property
-    def embedding_size(self):
-        return self.gazzetter_vector_class_size
+    # @property
+    # def embedding_size(self):
+    #     return self.gazzetter_vector_tag_size
+    # @property
+    # def embedding_size(self):
+    #     return self.gazzetter_vector_class_size
     @property
     def no_dependencies(self):
         return len(self.dependencies)
