@@ -244,11 +244,14 @@ class BERTComponent:
     def __init__(self):
         self.bert_vector_size = 9216 
         self.sent_vector_size = 768
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-        self.bio_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
-        self.multilingual_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/second_bert_model')
-        self.bio_bert_model.eval()
-        self.multilingual_bert_model.eval()
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
+        self.bert_model = BertModel.from_pretrained('bert-base-multilingual-uncased')
+        #self.beto_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/beto_model')
+        #self.multilingual_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
+        #self.bio_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/second_bert_model')
+        #self.multilingual_bert_model.train()
+        #self.bio_bert_model.train()
+        self.bert_model.eval()
 
 
     def get_spans_bert_tokens(self, tokenized_sentence):
@@ -318,10 +321,10 @@ class BERTComponent:
         segments_tensors = torch.tensor([segments_ids])
 
         with torch.no_grad():
-            try:
-                encoded_layers, _ = self.bio_bert_model(tokens_tensor, segments_tensors)
-            except:
-                encoded_layers, _ = self.multilingual_bert_model(tokens_tensor, segments_tensors)
+            #try:
+            #    encoded_layers, _ = self.bio_bert_model(tokens_tensor, segments_tensors)
+            #except:
+            encoded_layers, _ = self.bert_model(tokens_tensor, segments_tensors)
         
         token_embeddings = torch.stack(encoded_layers, dim=0)
         token_embeddings = torch.squeeze(token_embeddings, dim=1)
@@ -331,7 +334,7 @@ class BERTComponent:
 
         for token in token_embeddings:
             #sum_vec = torch.sum(token[-4:], dim=0)
-            cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4], token[-5], token[-6], token[-7], token[-8], token[-9], token[-10], token[-11], token[-12]), dim=0)
+            cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4], token[-5], token[-6], token[-7], token[-8], token[-9], token[-10], token[-11], token[-12]), dim=-1)
             token_vec_sums.append(cat_vec)
         
         token_vecs = encoded_layers[11][0]
