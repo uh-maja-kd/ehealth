@@ -907,3 +907,295 @@ class DependencyJointModelDataset(
     @property
     def no_relations(self):
         return len(self.relations)
+
+
+class DependencyBERTJointModelDataset(
+    Dataset,
+    TokenizerComponent,
+    EmbeddingComponent,
+    CharEmbeddingComponent,
+    DependencyComponent,
+    PostagComponent,
+    DependencyTreeComponent,
+    EntityTypesComponent,
+    RelationComponent,
+    BMEWOVTagsComponent,
+    ShufflerComponent,
+    BERTComponent,
+    GazzeterComponent):
+
+    def __init__(self, collection: Collection, wv):
+        print("Loading nlp...")
+        TokenizerComponent.__init__(self)
+        EmbeddingComponent.__init__(self, wv)
+        CharEmbeddingComponent.__init__(self)
+        PostagComponent.__init__(self)
+        DependencyComponent.__init__(self)
+        DependencyTreeComponent.__init__(self)
+        EntityTypesComponent.__init__(self)
+        RelationComponent.__init__(self, include_none = True)
+        BMEWOVTagsComponent.__init__(self)
+        ShufflerComponent.__init__(self)
+        BERTComponent.__init__(self)
+        GazzeterComponent.__init__(self)
+
+        self.dataxsentence = self._get_sentences_data(collection)
+        self.data = self.get_data()
+
+    def _get_sentences_data(self, collection):
+        data = []
+        print("Collecting data per sentence...")
+        for sentence in tqdm(collection.sentences):
+            spans = self.get_spans(sentence.text)
+            words = [sentence.text[beg:end] for (beg, end) in spans]
+
+            word_embedding_data = self._get_word_embedding_data(words)
+            char_embedding_data = self._get_char_embedding_data(words)
+            #gazzeter_embedding_data = self._get_gazzeter_embedding_data(words)
+            bert_embedding_data = self._get_bert_embedding_data(sentence.text, spans)
+            postag_data = self._get_postag_data(sentence.text)
+            dependency_data = self._get_dependency_data(sentence.text)
+            dep_tree, dependencytree_data = self._get_dependencytree_data(sentence.text)
+            head_words = self._get_head_words(sentence, spans, dep_tree)
+            entities_labels_data = self._get_entities_labels_data(sentence, spans)
+
+
+            data.append((
+                sentence,
+                spans,
+                head_words,
+                entities_labels_data,
+                word_embedding_data,
+                char_embedding_data,
+                #gazzeter_embedding_data,
+                bert_embedding_data,
+                #sentence_embedding_data,
+                postag_data,
+                dependency_data,
+                dependencytree_data
+            ))
+
+        return data
+
+    def _get_head_words(self, sentence, spans, dep_tree):
+        head_words = [[] for _ in range(len(spans))]
+        for kp in sentence.keyphrases:
+            try:
+                kp_indices = [spans.index(span) for span in kp.spans]
+                head_word_index = self._get_entity_head(kp_indices, dep_tree)
+                head_words[head_word_index].append(kp)
+            except Exception as e:
+                # print(e)
+                # print(sentence)
+                # print(kp)
+                # print(spans)
+                pass
+        return head_words
+
+    def _get_entities_labels_data(self, sentence, spans):
+        d = [ValueSortedDict([(type,0) for type in self.entity_types]) for _ in spans]
+        for i, span in enumerate(spans):
+            d[i]["<None>"] -= 0.5
+            kp_with_span = [kp for kp in sentence.keyphrases if span in kp.spans]
+            for kp in kp_with_span:
+                d[i][kp.label] -= 1
+        return d
+
+    def _get_word_embedding_data(self, words):
+        return torch.tensor([self.get_word_index(word) for word in words], dtype=torch.long)
+
+    def _get_char_embedding_data(self, words):
+        max_word_len = max([len(word) for word in words])
+        chars_indices = [self.encode_chars_indices(word, max_word_len, len(words)) for word in words]
+        return one_hot(torch.tensor(chars_indices, dtype=torch.long), len(self.abc)).type(dtype = torch.float32)
+
+    def _get_gazzeter_embedding_data(self,words):
+        return torch.tensor([[self.get_gazzeter_encoding(word)] for word in words], dtype=torch.long).type(dtype=torch.float32)
+
+    def _get_bert_embedding_data(self, sentence, spans):
+        #print(sentence)
+        bert_embedding = self.get_bert_embeddings(sentence, spans)
+        return torch.stack(bert_embedding)
+
+    def _get_postag_data(self, sentence):
+        return torch.tensor(self.get_sentence_postags(sentence), dtype=torch.long)
+
+    def _get_dependency_data(self ,sentence):
+        return torch.tensor(self.get_sentence_dependencies(sentence), dtype=torch.long)
+
+    def _find_node(self, tree, idx):
+        if tree.idx == idx:
+            return tree
+
+        else:
+            for child in tree.children:
+                node = self._find_node(child, idx)
+                if node:
+                    return node
+            return False
+
+    def _get_dependencytree_data(self, sentence):
+        dep_tree = self.get_dependency_tree(sentence)
+        sent_len = len(self.get_spans(sentence))
+        return dep_tree, [self._find_node(dep_tree, i) for i in range(sent_len)]
+
+    def _get_entity_head(self, entity_words : list , dependency_tree : Tree):
+
+        if dependency_tree.idx in entity_words:
+            return dependency_tree.idx
+
+        for child in dependency_tree.children:
+            ans = self._get_entity_head(entity_words, child)
+            if ans is not None:
+                return ans
+
+        return None
+
+    def get_data(self):
+        data = []
+        print("Creating dataset...")
+        for sent_data in tqdm(self.dataxsentence):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                entities_labels_data,
+                word_embedding_data,
+                char_embedding_data,
+                #gazzeter_embedding_data,
+                bert_embedding_data,
+                #sentence_embedding_data,
+                postag_embedding_data,
+                dependency_data,
+                dependencytree_data
+            ) = sent_data
+
+            sent_len = len(sentence_spans)
+            total_relations = len(self.relations)
+
+            entities_spans = [kp.spans for kp in sentence.keyphrases]
+            sentence_tags = BMEWOV.encode(sentence_spans, entities_spans)
+            sentence_tags = torch.tensor([self.tag2index[tag] for tag in sentence_tags], dtype = torch.long)
+
+            sentence_labels = torch.tensor([self.type2index[list(labels.items())[0][0]] for labels in entities_labels_data])
+
+            entity_heads = {}
+            for i, entities in enumerate(head_words):
+                for entity in entities:
+                    entity_heads[entity.id] = i
+
+            positive_relations = [
+                (
+                    entity_heads[relation.origin],
+                    entity_heads[relation.destination],
+                    torch.LongTensor([self.relation2index[relation.label]])
+                )
+                for relation in sentence.relations \
+                    if relation.origin in entity_heads and relation.destination in entity_heads
+            ]
+
+            paired_tokens = [(orig, dest) for orig, dest, _ in positive_relations]
+            indices = list(range(sent_len))
+            negative_relations = [(i, j, torch.LongTensor([self.relation2index['none']])) \
+                for i, j in list(product(indices, indices)) \
+                    if (i, j) not in paired_tokens and len(head_words[i]) > 0 and len(head_words[j]) > 0]
+
+            relations = {
+                "pos": positive_relations,
+                "neg": negative_relations
+            }
+
+            data.append((
+                word_embedding_data,
+                char_embedding_data,
+                #gazzeter_embedding_data,
+                bert_embedding_data,
+                #sentence_embedding_data,
+                postag_embedding_data,
+                dependency_data,
+                dependencytree_data,
+                sentence.text,
+                sentence_spans,
+                sentence_labels,
+                sentence_tags,
+                relations,
+            ))
+
+        return data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, index):
+        return self.data[index]
+
+    @property
+    def evaluation(self):
+        eval = []
+        for sent_data, data in zip(self.dataxsentence, self.data):
+            (
+                sentence,
+                sentence_spans,
+                head_words,
+                *extra
+            ) = sent_data
+
+            (
+                word_embedding_data,
+                char_embedding_data,
+                #gazzeter_embedding_data,
+                bert_embedding_data,
+                #sentence_embedding_data,
+                postag_embedding_data,
+                dependency_embedding_data,
+                dependencytree_data,
+                sentence.text,
+                sentence_spans,
+                *extra
+            ) = data
+
+            eval.append((
+                sentence,
+                sentence_spans,
+                head_words,
+                word_embedding_data,
+                char_embedding_data,
+                #gazzeter_embedding_data,
+                bert_embedding_data,
+                #sentence_embedding_data,
+                postag_embedding_data,
+                dependency_embedding_data,
+                dependencytree_data
+                #sentence.text,
+                #sentence_spans
+            ))
+
+        return eval
+
+    @property
+    def embedding_size(self):
+        return self.word_vector_size
+    @property
+    def embedding_size(self):
+        return self.gazzetter_vector_tag_size
+    @property
+    def embedding_size(self):
+        return self.gazzetter_vector_class_size
+    @property
+    def no_dependencies(self):
+        return len(self.dependencies)
+    @property
+    def no_chars(self):
+        return len(self.abc)
+    @property
+    def no_postags(self):
+        return len(self.postags)
+    @property
+    def no_entity_types(self):
+        return len(self.entity_types)
+    @property
+    def no_entity_tags(self):
+        return len(self.entity_tags)
+    @property
+    def no_relations(self):
+        return len(self.relations)
