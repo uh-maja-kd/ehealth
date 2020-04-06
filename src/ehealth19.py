@@ -20,6 +20,7 @@ from kdtools.datasets import (
     SentenceEmbeddingDataset,
     JointModelDataset,
     DependencyJointModelDataset,
+    DependencyBERTJointModelDataset,
     RelationsOracleDataset
 )
 from kdtools.models import (
@@ -30,6 +31,7 @@ from kdtools.models import (
     DependencyJointModel,
     ShortestDependencyPathJointModel,
     StackedBiLSTMCRFModel,
+    BERTStackedBiLSTMCRFModel,
     DependencyRelationsModel,
     ShortestDependencyPathRelationsModel,
     OracleParserModel,
@@ -924,7 +926,7 @@ class TransferAlgorithm(Algorithm):
         builder = ConfigBuilder()
         model_config = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
 
-        self.taskA_model = StackedBiLSTMCRFModel(
+        self.taskA_model = BERTStackedBiLSTMCRFModel(
             self.fake_dependency_dataset.embedding_size,
             self.fake_dependency_dataset.wv,
             self.fake_dependency_dataset.no_chars,
@@ -1049,7 +1051,7 @@ class TransferAlgorithm(Algorithm):
 
     def run_taskA(self, collection: Collection, load_path = None):
         print("Running task A...")
-        dataset = DependencyJointModelDataset(collection, self.wv)
+        dataset = DependencyBERTJointModelDataset(collection, self.wv)
 
         if load_path is not None:
             print("Loading weights...")
@@ -1070,7 +1072,6 @@ class TransferAlgorithm(Algorithm):
                 bert_embeddings,
                 #sent_embedding,
                 postag_inputs,
-                dependency_inputs,
                 trees
             ) = data
 
@@ -1352,7 +1353,6 @@ class TransferAlgorithm(Algorithm):
                 bert_embeddings,
                 #sent_embedding,
                 postag_inputs,
-                dependency_inputs,
                 trees
             ) = X
 
@@ -1620,11 +1620,11 @@ class TransferAlgorithm(Algorithm):
         train_configB_class = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskB_class
 
         wv = Word2VecKeyedVectors.load(model_configA.embedding_path)
-        dataset = DependencyJointModelDataset(train_collection, wv)
-        val_data = DependencyJointModelDataset(validation_collection, wv)
+        #dataset = DependencyJointModelDataset(train_collection, wv)
+        #val_data = DependencyJointModelDataset(validation_collection, wv)
 
         print("Training taskA")
-        self.train_taskA(dataset, val_data, self.train_configA)
+        self.train_taskA(train_collection, validation_collection)
         if save_path is not None:
             print("Saving taskA weights...")
             torch.save(self.taskA_model.state_dict(), save_path + "transfer_modelA.ptdict")
@@ -1656,10 +1656,10 @@ class TransferAlgorithm(Algorithm):
         model_config = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
         train_config = builder.parse_config('./configs/transfer_models/config_Train_DependencyJointModel.json').taskA
 
-        dataset = DependencyJointModelDataset(train_collection, self.wv)
-        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+        dataset = DependencyBERTJointModelDataset(train_collection, self.wv)
+        val_data = DependencyBERTJointModelDataset(validation_collection, self.wv)
 
-        self.taskA_model = StackedBiLSTMCRFModel(
+        self.taskA_model = BERTStackedBiLSTMCRFModel(
             dataset.embedding_size,
             dataset.bert_vector_size,
             #dataset.sent_vector_size,
@@ -1698,7 +1698,6 @@ class TransferAlgorithm(Algorithm):
                     bert_embeddings,
                     #sent_embedding,
                     postag_inputs,
-                    dependency_inputs,
                     trees,
                 ) = X
 

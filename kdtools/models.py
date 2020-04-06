@@ -749,7 +749,7 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         #INPUT PROCESSING
 
         #Word Embedding layer
-        self.word_embedding = PretrainedEmbedding(wv)
+        #self.word_embedding = PretrainedEmbedding(wv)
 
         #Char Embedding layer
         self.char_embedding = CharCNN(1, no_chars, charencoding_size)
@@ -758,10 +758,12 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
 
         #Word-encoding BiLSTMs
-        self.word_bilstm1 = BiLSTM(embedding_size + bert_embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
+        self.word_bilstm1 = BiLSTM(bert_embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
         self.word_bilstm2 = BiLSTM(bilstm_hidden_size, bilstm_hidden_size//2, return_sequence=True)
 
         #OUTPUT
+        self.dropout_in = nn.Dropout2d(p=0.33)
+        self.dropout_rnn_in = nn.Dropout(p=0.5)
         self.dropout = nn.Dropout(dropout_chance)
 
         #Entity type
@@ -780,15 +782,17 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         ) = X
 
         #obtaining embeddings vectors
-        word_embeddings = self.word_embedding(word_inputs)
-        # print(word_embeddings.shape)
-        # print(bert_embeddings.shape)
+        #word_embeddings = self.word_embedding(word_inputs)
+        
         char_embeddings = self.char_embedding(char_inputs)
+        char_embeddings = self.dropout_in(char_embeddings)
+
         postag_embeddings = self.postag_embedding(postag_inputs)
+        postag_embeddings = self.dropout_in(postag_embeddings)
 
         bilstm_inputs = torch.cat(
             (
-                word_embeddings,
+                #word_embeddings,
                 char_embeddings,
                 bert_embeddings,
                 #sent_embedding,
@@ -796,6 +800,7 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
             ), dim=-1)
 
         #encoding those inputs
+        bilstm_inputs = self.dropout_rnn_in(bilstm_inputs)
         bilstm_encoding, _ = self.word_bilstm1(bilstm_inputs)
         bilstm_encoding, _ = self.word_bilstm2(bilstm_encoding)
         bilstm_encoding = self.dropout(bilstm_encoding)
