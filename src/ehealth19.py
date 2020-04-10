@@ -2161,7 +2161,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             "dependency": True,
             "entity_type": True,
             "entity_tag": True
-        }):
+        }, cuda = False):
         self.taskA_model = None
         self.taskB_model_recog = None
         self.taskB_model_class = None
@@ -2171,6 +2171,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
 
         self.ablation = ablation
+        self.cuda = cuda
 
     def load_taskA_model(self, load_path = None):
         self.taskA_model = StackedBiLSTMCRFModel(
@@ -2189,6 +2190,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         if load_path is not None:
             print("Loading taskA_model weights..")
             self.taskA_model.load_state_dict(torch.load(load_path + "modelA.ptdict"))
+
+        if self.cuda:
+            self.taskA_model.cuda()
 
     def load_taskB_recog_model(self, load_path = None):
         self.taskB_model_recog = TreeBiLSTMPathModel(
@@ -2217,6 +2221,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskB_recog_model weights..")
             self.taskB_model_recog.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
 
+        if self.cuda:
+            self.taskB_model_recog.cuda()
+
     def load_taskB_class_model(self, load_path = None):
         self.taskB_model_class = TreeBiLSTMPathModel(
             self.fake_dependency_dataset.embedding_size,
@@ -2243,6 +2250,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         if load_path is not None:
             print("Loading taskB_class_model weights..")
             self.taskB_model_class.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
+
+        if self.cuda:
+            self.taskB_model_class.cuda()
 
 
     def evaluate_taskA(self, dataset):
@@ -2512,7 +2522,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             "validation": []
         }
 
-        for epoch in range(1):
+        for epoch in range(10):
             self.taskB_model_recog.train()
             print("Optimizing...")
             for data in tqdm(dataset):
