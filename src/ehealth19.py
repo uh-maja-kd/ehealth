@@ -2356,12 +2356,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
             for origin, destination, y_rel in relations["neg"]:
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    y_ent_type.unsqueeze(0),
-                    y_ent_tag.unsqueeze(0),
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
                     trees,
                     origin,
                     destination
