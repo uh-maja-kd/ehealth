@@ -2346,7 +2346,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     destination
                 )
 
-                y_rel = torch.tensor([1], dtype = torch.float32)
+                y_rel = torch.tensor([1], dtype = torch.float32).to(device)
                 out_rel = self.taskB_model_recog(X).squeeze(0)
 
                 total_loss += criterion(out_rel, y_rel).item()
@@ -2367,7 +2367,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     destination
                 )
 
-                y_rel = torch.tensor([0], dtype = torch.float32)
+                y_rel = torch.tensor([0], dtype = torch.float32).to(device)
                 out_rel = self.taskB_model_recog(X).squeeze(0)
 
                 total_loss += criterion(out_rel, y_rel).item()
@@ -2425,6 +2425,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 )
 
                 out_rel = self.taskB_model_class(X)
+                y_rel = y_rel.to(device)
 
                 total_loss += criterion(out_rel, y_rel).item()
                 correct_true_relations += int(torch.argmax(out_rel) == y_rel)
@@ -2565,9 +2566,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     )
 
                     if dataset.relations[y_rel] != "none":
-                        y_rel = torch.tensor([1], dtype = torch.float32)
+                        y_rel = torch.tensor([1], dtype = torch.float32).to(device)
                     else:
-                        y_rel = torch.tensor([0], dtype = torch.float32)
+                        y_rel = torch.tensor([0], dtype = torch.float32).to(device)
 
                     out_rel = self.taskB_model_recog(X).squeeze(0)
 
@@ -2651,6 +2652,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                     )
 
                     out_rel = self.taskB_model_class(X)
+                    y_rel = y_rel.to(device)
+
                     loss_positive = criterion(out_rel, y_rel)
                     rels_loss += loss_positive
 
