@@ -46,6 +46,7 @@ from numpy.random import random
 
 use_cuda = torch.cuda.is_available()
 device = torch.device('cuda:0' if use_cuda else 'cpu')
+print(device)
 
 class BiLSTMCRF_RelationsParsing(Algorithm):
     def __init__(self):
