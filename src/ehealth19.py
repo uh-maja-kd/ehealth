@@ -44,6 +44,9 @@ from gensim.models.word2vec import Word2VecKeyedVectors
 from numpy.random import random
 
 
+use_cuda = torch.cuda.is_available()
+device = torch.device('cuda:0' if use_cuda else 'cpu')
+
 class BiLSTMCRF_RelationsParsing(Algorithm):
     def __init__(self):
         self.models_taskA = {}
@@ -2161,7 +2164,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             "dependency": True,
             "entity_type": True,
             "entity_tag": True
-        }, cuda = False):
+        }):
         self.taskA_model = None
         self.taskB_model_recog = None
         self.taskB_model_class = None
@@ -2171,7 +2174,6 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
 
         self.ablation = ablation
-        self.cuda = cuda
 
     def load_taskA_model(self, load_path = None):
         self.taskA_model = StackedBiLSTMCRFModel(
@@ -2191,8 +2193,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskA_model weights..")
             self.taskA_model.load_state_dict(torch.load(load_path + "modelA.ptdict"))
 
-        if self.cuda:
-            self.taskA_model.cuda()
+        self.taskA_model.cuda(device)
 
     def load_taskB_recog_model(self, load_path = None):
         self.taskB_model_recog = TreeBiLSTMPathModel(
@@ -2221,8 +2222,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskB_recog_model weights..")
             self.taskB_model_recog.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
 
-        if self.cuda:
-            self.taskB_model_recog.cuda()
+        self.taskB_model_recog.cuda(device)
 
     def load_taskB_class_model(self, load_path = None):
         self.taskB_model_class = TreeBiLSTMPathModel(
@@ -2251,8 +2251,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskB_class_model weights..")
             self.taskB_model_class.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
 
-        if self.cuda:
-            self.taskB_model_class.cuda()
+        self.taskB_model_class.cuda(device)
 
 
     def evaluate_taskA(self, dataset):
@@ -2268,6 +2267,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
 
+            y_ent_type = y_ent_type.to(device)
+            y_ent_tag = y_ent_tag.to(device)
+
             (
                 word_inputs,
                 char_inputs,
@@ -2277,9 +2279,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             ) = X
 
             X = (
-                word_inputs.unsqueeze(0),
-                char_inputs.unsqueeze(0),
-                postag_inputs.unsqueeze(0)
+                word_inputs.unsqueeze(0).to(device),
+                char_inputs.unsqueeze(0).to(device),
+                postag_inputs.unsqueeze(0).to(device)
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
@@ -2317,6 +2319,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         total_rels = 0
 
         criterion = BCELoss()
+        criterion.cuda(device)
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2331,12 +2334,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
             for origin, destination, y_rel in relations["pos"]:
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    y_ent_type.unsqueeze(0),
-                    y_ent_tag.unsqueeze(0),
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
                     trees,
                     origin,
                     destination
@@ -2394,6 +2397,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         total_loss = 0
 
         criterion = CrossEntropyLoss()
+        criterion.cuda(device)
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2408,12 +2412,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
             for origin, destination, y_rel in relations["pos"]:
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    y_ent_type.unsqueeze(0),
-                    y_ent_tag.unsqueeze(0),
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
                     trees,
                     origin,
                     destination
@@ -2457,6 +2461,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, _ = data
 
+                y_ent_type = y_ent_type.to(device)
+                y_ent_tag = y_ent_tag.to(device)
+
                 (
                     word_inputs,
                     char_inputs,
@@ -2466,9 +2473,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 ) = X
 
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0)
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device)
                 )
 
                 optimizer.zero_grad()
@@ -2515,6 +2522,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
 
         criterion = BCELoss()
+        criterion.cuda(device)
 
         best_cv_f1 = 0
         history = {
@@ -2544,12 +2552,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 rels_loss = 0
                 for origin, destination, y_rel in premuted_rels:
                     X = (
-                        word_inputs.unsqueeze(0),
-                        char_inputs.unsqueeze(0),
-                        postag_inputs.unsqueeze(0),
-                        dependency_inputs.unsqueeze(0),
-                        y_ent_type.unsqueeze(0),
-                        y_ent_tag.unsqueeze(0),
+                        word_inputs.unsqueeze(0).to(device),
+                        char_inputs.unsqueeze(0).to(device),
+                        postag_inputs.unsqueeze(0).to(device),
+                        dependency_inputs.unsqueeze(0).to(device),
+                        y_ent_type.unsqueeze(0).to(device),
+                        y_ent_tag.unsqueeze(0).to(device),
                         trees,
                         origin,
                         destination
@@ -2603,6 +2611,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
 
         criterion = CrossEntropyLoss()
+        criterion.cuda(device)
 
         best_cv_acc = 0
         history = {
@@ -2699,9 +2708,9 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
             #ENTITIES
             X = (
-                word_inputs.unsqueeze(0),
-                char_inputs.unsqueeze(0),
-                postag_inputs.unsqueeze(0)
+                word_inputs.unsqueeze(0).to(device),
+                char_inputs.unsqueeze(0).to(device),
+                postag_inputs.unsqueeze(0).to(device)
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
@@ -2750,12 +2759,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 destination, kp_destination = destination_pair
 
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    postag_inputs.unsqueeze(0),
-                    dependency_inputs.unsqueeze(0),
-                    y_ent_type.unsqueeze(0),
-                    y_ent_tag.unsqueeze(0),
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
                     trees,
                     origin,
                     destination
@@ -2798,12 +2807,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 for relation in sentence.relations:
                     if relation.origin == kp_origin.id and relation.destination == kp_destination.id:
                         X = (
-                            word_inputs.unsqueeze(0),
-                            char_inputs.unsqueeze(0),
-                            postag_inputs.unsqueeze(0),
-                            dependency_inputs.unsqueeze(0),
-                            y_ent_type.unsqueeze(0),
-                            y_ent_tag.unsqueeze(0),
+                            word_inputs.unsqueeze(0).to(device),
+                            char_inputs.unsqueeze(0).to(device),
+                            postag_inputs.unsqueeze(0).to(device),
+                            dependency_inputs.unsqueeze(0).to(device),
+                            y_ent_type.unsqueeze(0).to(device),
+                            y_ent_tag.unsqueeze(0).to(device),
                             trees,
                             origin,
                             destination
