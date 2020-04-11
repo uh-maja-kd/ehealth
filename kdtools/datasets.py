@@ -969,7 +969,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_data,
-                #dependency_data,
+                dependency_data,
                 dependencytree_data
             ))
 
@@ -1064,7 +1064,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                #dependency_data,
+                dependency_data,
                 dependencytree_data
             ) = sent_data
 
@@ -1110,7 +1110,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                #dependency_data,
+                dependency_data,
                 dependencytree_data,
                 #sentence.text,
                 #sentence_spans,
@@ -1145,7 +1145,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                #dependency_embedding_data,
+                dependency_embedding_data,
                 dependencytree_data,
                 #sentence.text,
                 #sentence_spans,
@@ -1162,7 +1162,7 @@ class DependencyBERTJointModelDataset(
                 bert_embedding_data,
                 #sentence_embedding_data,
                 postag_embedding_data,
-                #dependency_embedding_data,
+                dependency_embedding_data,
                 dependencytree_data
                 #sentence.text,
                 #sentence_spans
