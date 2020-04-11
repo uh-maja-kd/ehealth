@@ -311,8 +311,9 @@ class BERTComponent:
 
     def get_bert_embeddings(self, sentence, spans):
         words = [sentence[beg:end] for (beg, end) in spans]
-        sentence = '[CLS] ' + sentence + ' [SEP]'
+        # sentence = '[CLS] ' + sentence + ' [SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
+        tokenized_sentence = ['[CLS]'] + tokenized_sentence + ['[SEP]']
         tokens_spans = self.get_spans_bert_tokens(tokenized_sentence)
         indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
         segments_ids = [1] * len(tokenized_sentence)
