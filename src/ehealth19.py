@@ -2194,7 +2194,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskA_model weights..")
             self.taskA_model.load_state_dict(torch.load(load_path + "modelA.ptdict"))
 
-        self.taskA_model.cuda(device)
+        if use_cuda:
+            self.taskA_model.cuda(device)
 
     def load_taskB_recog_model(self, load_path = None):
         self.taskB_model_recog = TreeBiLSTMPathModel(
@@ -2223,7 +2224,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskB_recog_model weights..")
             self.taskB_model_recog.load_state_dict(torch.load(load_path + "modelB_recog.ptdict"))
 
-        self.taskB_model_recog.cuda(device)
+        if use_cuda:
+            self.taskB_model_recog.cuda(device)
 
     def load_taskB_class_model(self, load_path = None):
         self.taskB_model_class = TreeBiLSTMPathModel(
@@ -2252,7 +2254,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             print("Loading taskB_class_model weights..")
             self.taskB_model_class.load_state_dict(torch.load(load_path + "modelB_class.ptdict"))
 
-        self.taskB_model_class.cuda(device)
+        if use_cuda:
+            self.taskB_model_class.cuda(device)
 
 
     def evaluate_taskA(self, dataset):
@@ -2320,7 +2323,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         total_rels = 0
 
         criterion = BCELoss()
-        criterion.cuda(device)
+        if use_cuda:
+            criterion.cuda(device)
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2398,7 +2402,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         total_loss = 0
 
         criterion = CrossEntropyLoss()
-        criterion.cuda(device)
+        if use_cuda:
+            criterion.cuda(device)
 
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations = data
@@ -2524,7 +2529,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
 
         criterion = BCELoss()
-        criterion.cuda(device)
+        if use_cuda:
+            criterion.cuda(device)
 
         best_cv_f1 = 0
         history = {
@@ -2613,7 +2619,8 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         )
 
         criterion = CrossEntropyLoss()
-        criterion.cuda(device)
+        if use_cuda:
+            criterion.cuda(device)
 
         best_cv_acc = 0
         history = {

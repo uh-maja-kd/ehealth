@@ -839,6 +839,8 @@ class DependencyJointModelDataset(
                 char_embedding_data,
                 postag_embedding_data,
                 dependency_data,
+                dependencytree_data,
+                sentence_labels,
                 sentence_tags,
                 relations
             ))
