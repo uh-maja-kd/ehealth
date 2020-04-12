@@ -149,7 +149,7 @@ class MAJA2020(Algorithm):
             X = (
                 word_inputs.unsqueeze(0).to(device),
                 char_inputs.unsqueeze(0).to(device),
-                bert_embeddings.unsqueeze(0),
+                bert_embeddings.unsqueeze(0).to(device),
                 postag_inputs.unsqueeze(0).to(device)
             )
 
@@ -300,6 +300,9 @@ class MAJA2020(Algorithm):
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, _, _ = data
 
+                y_ent_type = y_ent_type.to(device)
+                y_ent_tag = y_ent_tag.to(device)
+
                 (
                     word_inputs,
                     char_inputs,
@@ -310,10 +313,10 @@ class MAJA2020(Algorithm):
                 ) = X
 
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    bert_embeddings.unsqueeze(0),
-                    postag_inputs.unsqueeze(0)
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device)
                 )
 
                 optimizer.zero_grad()
@@ -369,7 +372,7 @@ class MAJA2020(Algorithm):
         best_cv_f1 = 0
 
         for epoch in range(train_config.epochs):
-            model.train()
+            self.taskB_model.train()
             print("Optimizing...")
             for data in tqdm(dataset):
                 * X, y_ent_type, y_ent_tag, relations, _ = data
@@ -410,7 +413,7 @@ class MAJA2020(Algorithm):
                     gold_rel = F.one_hot(torch.tensor(y_rel), no_relations-1).type(torch.float32).unsqueeze(0) \
                     if y_rel < 13 else torch.zeros(1,no_relations - 1)
                     gold_rel = gold_rel.to(device)
-                    out_rel = model(X)
+                    out_rel = self.taskB_model(X)
 
                     rels_loss += criterion(out_rel, gold_rel)
 
