@@ -1246,3 +1246,120 @@ class TreeBiLSTMPathModel(nn.Module):
         if self.binary:
             return torch.sigmoid(self.dense(encoding))
         return F.softmax(self.dense(encoding), dim=-1)
+
+
+class BERTTreeBiLSTMPathModel(nn.Module):
+    def __init__(
+        self,
+        embedding_size,
+        wv,
+        bert_size,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        no_dependencies,
+        dependency_size,
+        no_entity_types,
+        entity_type_size,
+        no_entity_tags,
+        entity_tag_size,
+        bilstm_path_hidden_size,
+        lstm_path_hidden_size,
+        tree_lstm_hidden_size,
+        bilstm_dropout_chance,
+        lstm_dropout_chance,
+        tree_lstm_dropout_chance,
+        no_relations,
+        ablation = {
+            "bert_embedding": True,
+            "word_embedding": True,
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }
+    ):
+        super().__init__()
+
+        self.ablation = ablation
+        self.bert_size = bert_size
+
+        self.word_embedding = PretrainedEmbedding(wv)
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+
+        bilstm_input_size = (
+            (bert_size if ablation["bert_embedding"] else 0) +
+            (embedding_size if ablation["word_embedding"] else 0) +
+            (charencoding_size if ablation["chars_info"] else 0) +
+            (postag_size if ablation["postag"] else 0) +
+            (dependency_size if ablation["dependency"] else 0) +
+            (entity_type_size if ablation["entity_type"] else 0) +
+            (entity_tag_size if ablation["entity_tag"] else 0)
+        )
+
+        self.bilstm1 = BiLSTM(bilstm_input_size, bilstm_path_hidden_size//2, batch_first = True, return_sequence=True)
+        self.dropout1 = nn.Dropout(bilstm_dropout_chance)
+        self.bilstm2 = nn.LSTM(bilstm_path_hidden_size, lstm_path_hidden_size, batch_first = True)
+        self.dropout2 = nn.Dropout(lstm_dropout_chance)
+
+        self.tree_lstm = ChildSumTreeLSTM(bilstm_input_size, tree_lstm_hidden_size)
+        self.dropout3 = nn.Dropout(tree_lstm_dropout_chance)
+
+        dense_input_size = lstm_path_hidden_size + 2*tree_lstm_hidden_size
+        self.dense = nn.Linear(dense_input_size, no_relations)
+
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            bert_embeddings,
+            postag_inputs,
+            dependency_inputs,
+            entity_type_inputs,
+            entity_tag_inputs,
+            trees,
+            origin,
+            destination
+        ) = X
+
+        bert_embeddings = bert_embeddings[:,:,:self.bert_size] if self.ablation["bert_embedding"] else None
+        word_embeddings = self.word_embedding(word_inputs) if self.ablation["word_embedding"] else None
+        char_embeddings = self.char_embedding(char_inputs) if self.ablation["chars_info"] else None
+        postag_embeddings = self.postag_embedding(postag_inputs) if self.ablation["postag"] else None
+        dependency_embeddings = self.dependency_embedding(dependency_inputs) if self.ablation["dependency"] else None
+        type_embeddings = self.entity_type_embedding(entity_type_inputs) if self.ablation["entity_type"] else None
+        tag_embeddings = self.entity_tag_embedding(entity_tag_inputs) if self.ablation["entity_tag"] else None
+
+        inputs = torch.cat([x for x in [
+            bert_embeddings,
+            word_embeddings,
+            char_embeddings,
+            postag_embeddings,
+            dependency_embeddings,
+            type_embeddings,
+            tag_embeddings
+        ] if x is not None], dim = -1)
+
+        dep_path = Tree.path(trees[origin], trees[destination])
+        bilstm_inputs_in_path = torch.cat([inputs[:, node.idx,:].unsqueeze(0) for node in dep_path], dim=1)
+
+        path_encoded, _ = self.bilstm1(bilstm_inputs_in_path)
+        path_encoded = self.dropout1(path_encoded)
+        path_encoded, _ = self.bilstm2(path_encoded)
+        path_encoded = path_encoded[:,-1,:]
+        path_encoded = self.dropout2(path_encoded)
+
+        origin_tree_encoding = self.tree_lstm(trees[origin], inputs.squeeze(0))[1]
+        destination_tree_encoding = self.tree_lstm(trees[destination], inputs.squeeze(0))[1]
+
+        encoding = torch.cat([origin_tree_encoding, destination_tree_encoding, path_encoded], dim = -1)
+        encoding = self.dropout3(encoding)
+
+        return torch.sigmoid(self.dense(encoding))
