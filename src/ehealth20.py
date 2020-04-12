@@ -179,7 +179,97 @@ class MAJA2020(Algorithm):
         }
 
     def evaluate_taskB_model(self, dataset, threshold = 0.5):
-        pass
+        self.taskB_model.eval()
+
+        correct = 0
+        spurious = 0
+        spurious1 = 0
+        spurious2 = 0
+        missing = 0
+        total_loss = 0
+        total_rels = 0
+
+        criterion = BCELoss(reduction = "sum")
+        if use_cuda:
+            criterion.cuda(device)
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations, _ = data
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            for origin, destination, y_rel in relations["pos"]:
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    trees,
+                    origin,
+                    destination
+                )
+                y_rel = y_rel.to(device)
+
+                gold_rel = F.one_hot(y_rel, no_relations-1).type(torch.float32).to(device)
+                out_rel = self.taskB_model(X)
+
+                total_loss += criterion(out_rel, gold_rel).item()
+                total_rels += 1
+
+                q1 = torch.max(out_rel) > threshold
+                q2 = torch.argmax(out_rel) == y_rel
+                correct += int(q1 and q2)
+                missing += int(not (q1 and q2))
+                spurious1 += int(q1 and not q2)
+
+            for origin, destination, y_rel in relations["neg"]:
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    trees,
+                    origin,
+                    destination
+                )
+
+
+                gold_rel = torch.zeros(1, no_relations - 1).to(device)
+                out_rel = self.taskB_model(X)
+
+                total_loss += criterion(out_rel, gold_rel).item()
+                total_rels += 1
+
+                spurious2 += int(torch.max(out_rel) > threshold)
+
+        spurious = spurious1 + spurious2
+
+        if correct + spurious == 0:
+            spurious = -1
+
+        precision = correct / (correct + spurious)
+        recovery = correct / (correct + missing)
+        f1 = 2*(precision * recovery) / (precision + recovery) if precision + recovery > 0 else 0.
+
+        return {
+            "loss": total_loss / total_rels,
+            "precision": precision,
+            "recovery": recovery,
+            "f1": f1
+        }
 
 
     def train_taskA_model(self, train_collection, validation_collection, train_config_path, save_path=None):
@@ -248,8 +338,95 @@ class MAJA2020(Algorithm):
             print("Saving weights...")
             torch.save(self.taskA_model.state_dict(), save_path)
 
-    def train_taskB_model(self, train_collection, validation_collection, save_path=None):
-        pass
+    def train_taskB_model(self, train_collection, validation_collection, train_config_path, save_path=None):
+
+        train_config = self.builder.parse_config(train_config_path).taskB
+
+        optimizer = Adam(
+            model.parameters(),
+            lr = train_config.optimizer.lr
+        )
+
+        criterion = BCELoss(reduction = "sum")
+        if use_cuda:
+            criterion.cuda(device)
+
+        history = {
+            "train": [],
+            "validation": []
+        }
+
+        best_cv_f1 = 0
+
+        for epoch in range(train_config.epochs):
+            model.train()
+            print("Optimizing...")
+            for data in tqdm(dataset):
+                * X, y_ent_type, y_ent_tag, relations, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    bert_embeddings,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                optimizer.zero_grad()
+
+                rels_loss = 0
+
+                positive_rels = relations["pos"]
+                if epoch % 5 == 0:
+                    shuffle(relations["neg"])
+                negative_rels = relations["neg"][:3*len(positive_rels)]
+                premuted_rels = permutation(positive_rels + negative_rels)
+
+                for origin, destination, y_rel in premuted_rels:
+                    X = (
+                        word_inputs.unsqueeze(0).to(device),
+                        char_inputs.unsqueeze(0).to(device),
+                        bert_embeddings.unsqueeze(0).to(device),
+                        postag_inputs.unsqueeze(0).to(device),
+                        dependency_inputs.unsqueeze(0).to(device),
+                        y_ent_type.unsqueeze(0).to(device),
+                        y_ent_tag.unsqueeze(0).to(device),
+                        trees,
+                        origin,
+                        destination
+                    )
+
+                    gold_rel = F.one_hot(torch.tensor(y_rel), no_relations-1).type(torch.float32).unsqueeze(0) \
+                    if y_rel < 13 else torch.zeros(1,no_relations - 1)
+                    gold_rel = gold_rel.to(device)
+                    out_rel = model(X)
+
+                    rels_loss += criterion(out_rel, gold_rel)
+
+                rels_loss.backward()
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            results_train = evaluate(model, dataset)
+            history["train"].append(results_train)
+
+            print("Evaluating on validation data...")
+            results_val = evaluate(model, val_data)
+            history["validation"].append(results_val)
+
+            for key, value in results_train.items():
+                print(f"[{epoch+1}] train_{key}: {value}")
+
+            for key, value in results_val.items():
+                print(f"[{epoch+1}] val_{key}: {value}")
+
+            if save_path is not None and results_val["f1"] > best_cv_f1:
+                print("Saving taskB_model weights...")
+                best_cv_f1 = results_val["f1"]
+                torch.save(model.state_dict(), save_path)
+
+        return history
 
 
     def run_taskA_model(self, collection, load_path=None):
@@ -308,7 +485,56 @@ class MAJA2020(Algorithm):
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
 
     def run_taskB_model(self, collection, load_path=None):
-        pass
+
+        print("Running task B...")
+        dataset = MajaDataset(collection, self.dataset_info["wv"])
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskB_model(load_path)
+
+        self.taskB_model.eval()
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations, evaluation = data
+
+            (
+                sentence,
+                sentence_spans,
+                head_words
+            ) = evaluation
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                _,
+            ) = X
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    trees,
+                    origin,
+                    destination
+                )
+
+                out_rel = self.taskB_model(X)
+
+                if torch.max(out_rel) > threshold:
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, dataset.relations[torch.argmax(out_rel)]))
 
 class TransferAlgorithm(Algorithm):
 
