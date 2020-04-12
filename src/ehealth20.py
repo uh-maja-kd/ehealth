@@ -122,21 +122,190 @@ class MAJA2020(Algorithm):
 
 
     def evaluate_taskA_model(self, dataset):
-        pass
+        self.taskA_model.eval()
+
+        correct_ent_types = 0
+        correct_ent_tags = 0
+        total_words = 0
+
+        running_loss_ent_type = 0
+        running_loss_ent_tag = 0
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, _, _ = data
+
+            y_ent_type = y_ent_type.to(device)
+            y_ent_tag = y_ent_tag.to(device)
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                _
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0).to(device),
+                char_inputs.unsqueeze(0).to(device),
+                bert_embeddings.unsqueeze(0),
+                postag_inputs.unsqueeze(0).to(device)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+            loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+            running_loss_ent_type += loss_ent_type.item()
+
+            loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+            running_loss_ent_tag += loss_ent_tag.item()
+
+            #entity type
+            correct_ent_types += sum(torch.tensor(out_ent_type) == y_ent_type).item()
+
+            #entity tags
+            correct_ent_tags += sum(torch.tensor(out_ent_tag) == y_ent_tag).item()
+
+            total_words += len(out_ent_tag)
+
+        return {
+            "loss": (running_loss_ent_type + running_loss_ent_tag) / total_words,
+            "loss_entity_type": running_loss_ent_type / total_words,
+            "loss_entity_tag": running_loss_ent_tag / total_words,
+            "entity_types_accuracy": correct_ent_types / total_words,
+            "entity_tags_accuracy": correct_ent_tags / total_words,
+            "accuracy": (correct_ent_types + correct_ent_tags) / (2*total_words)
+        }
 
     def evaluate_taskB_model(self, dataset, threshold = 0.5):
         pass
 
 
-    def train_taskA_model(self, train_collection, validation_collection, save_path=None):
-        pass
+    def train_taskA_model(self, train_collection, validation_collection, train_config_path, save_path=None):
+
+        train_config = self.builder.parse_config(train_config_path).taskA
+
+        dataset = MajaDataset(train_collection, self.dataset_info["wv"])
+        val_data = MajaDataset(validation_collection, self.dataset_info["wv"])
+
+        optimizer = optim.Adam(
+            self.taskA_model.parameters(),
+            lr = train_config.optimizer.lr,
+        )
+
+        for epoch in range(train_config.epochs):
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskA_model.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, _, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    bert_embeddings,
+                    postag_inputs,
+                    dependency_inputs,
+                    _,
+                ) = X
+
+                X = (
+                    word_inputs.unsqueeze(0),
+                    char_inputs.unsqueeze(0),
+                    bert_embeddings.unsqueeze(0),
+                    postag_inputs.unsqueeze(0)
+                )
+
+                optimizer.zero_grad()
+
+                sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+
+                train_total_words += len(trees)
+
+                loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
+                loss_ent_type.backward(retain_graph=True)
+
+                loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)
+                loss_ent_tag.backward()
+
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            train_diagnostics = self.evaluate_taskA_model(train_data)
+
+            print("Evaluating on validation data...")
+            val_diagnostics = self.evaluate_taskA_model(val_data)
+
+            for key, value in train_diagnostics.items():
+                print(f"[{epoch + 1}] train_{key}: {value :0.3}")
+            for key, value in val_diagnostics.items():
+                print(f"[{epoch + 1}] val_{key}: {value :0.3}")
+
+        if save_path is not None:
+            print("Saving weights...")
+            torch.save(self.taskA_model.state_dict(), save_path)
 
     def train_taskB_model(self, train_collection, validation_collection, save_path=None):
         pass
 
 
     def run_taskA_model(self, collection, load_path=None):
-        pass
+
+        print("Running task A...")
+        dataset = MajaDataset(train_collection, self.dataset_info["wv"])
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskA_model(load_path)
+
+        self.taskA_model.eval()
+
+        entity_id = 0
+
+        print("Running...")
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, _, evaluation = data
+
+            (
+                sentence,
+                sentence_spans,
+                _
+            ) = evaluation
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                _,
+            ) = X
+
+            X = (
+                word_inputs.unsqueeze(0),
+                char_inputs.unsqueeze(0),
+                bert_embeddings.unsqueeze(0),
+                postag_inputs.unsqueeze(0)
+            )
+
+            sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+            predicted_entities_types = [dataset.entity_types[idx] for idx in out_ent_type]
+            predicted_entities_tags = [dataset.entity_tags[idx] for idx in out_ent_tag]
+
+            kps = [[sentence_spans[idx] for idx in span_list] for span_list in BMEWOV.decode(predicted_entities_tags)]
+            for kp_spans in kps:
+                count = ValueSortedDict([(type,0) for type in dataset.entity_types])
+                for span in kp_spans:
+                    span_index = sentence_spans.index(span)
+                    span_type = predicted_entities_types[span_index]
+                    count[span_type] -= 1
+                entity_type = list(count.items())[0][0]
+
+                entity_id += 1
+                sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
 
     def run_taskB_model(self, collection, load_path=None):
         pass

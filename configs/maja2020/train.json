@@ -1,0 +1,14 @@
+{
+    "taskA": {
+        "epochs": 20,
+        "optimizer": {
+            "lr": 0.0009
+        }
+    },
+    "taskB": {
+        "epochs": 60,
+        "optimizer": {
+            "lr": 0.001
+        }
+    }
+}
