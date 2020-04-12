@@ -13,7 +13,7 @@ from sortedcollections import ValueSortedDict
 
 from pathlib import Path
 
-from kdtools.datasets import DependencyBERTJointModelDataset
+from kdtools.datasets import MajaDataset
 
 from kdtools.models import BERTStackedBiLSTMCRFModel, BERTTreeBiLSTMPathModel
 
@@ -26,7 +26,7 @@ from numpy.random import random
 
 use_cuda = torch.cuda.is_available()
 device = torch.device('cuda:0' if use_cuda else 'cpu')
-print(device)
+print(f"Using device: {device}")
 
 
 class MAJA2020(Algorithm):
@@ -36,15 +36,89 @@ class MAJA2020(Algorithm):
         taskB_ablation
     ):
 
-        self.taskAmodel = None
-        self.taskBmodel = None
+        self.builder = ConfigBuilder()
+
+        wv = Word2VecKeyedVectors.load("./trained/embeddings/wiki_classic/wiki_classic.wv")
+        fake_dataset = MajaDataset(Collection(), wv, load = False)
+
+        self.dataset_info = {
+            "embedding_size":fake_dataset.embedding_size,
+            "wv":fake_dataset.wv,
+            "no_chars":fake_dataset.no_chars,
+            "no_postags":fake_dataset.no_postags,
+            "no_dependencies":fake_dataset.no_dependencies,
+            "no_entity_types":fake_dataset.no_entity_types,
+            "no_entity_tags":fake_dataset.no_entity_tags,
+            "no_relations":fake_dataset.no_relations
+        }
+
+        self.taskA_ablation = taskA_ablation
+        self.taskB_ablation = taskB_ablation
+
+        self.taskA_model = None
+        self.taskB_model = None
 
 
-    def load_taskA_model(self, load_path=None):
-        pass
 
-    def load_taskB_model(self, load_path=None):
-        pass
+    def load_taskA_model(self, model_config_path, load_path=None):
+
+        model_config = self.builder.parse_config(model_config_path)
+
+        self.taskA_model = BERTStackedBiLSTMCRFModel(
+            self.dataset_info["embedding_size"],
+            model_config.bert_size,
+            self.dataset_info["wv"],
+            self.dataset_info["no_chars"],
+            model_config.charencoding_size,
+            self.dataset_info["no_postags"],
+            model_config.postag_size,
+            model_config.bilstm_hidden_size,
+            model_config.dropout_chance,
+            self.dataset_info["no_entity_types"],
+            self.dataset_info["no_entity_tags"]
+        )
+
+        if load_path is not None:
+            print("Loading taskA_model weights..")
+            self.taskA_model.load_state_dict(torch.load(load_path))
+
+        if use_cuda:
+            self.taskA_model.cuda(device)
+
+    def load_taskB_model(self, model_config_path, load_path=None):
+
+        model_config = self.builder.parse_config(model_config_path)
+
+        self.taskB_model = BERTTreeBiLSTMPathModel(
+            self.dataset_info["embedding_size"],
+            self.dataset_info["wv"],
+            model_config.bert_size,
+            self.dataset_info["no_chars"],
+            model_config.charencoding_size,
+            self.dataset_info["no_postags"],
+            model_config.postag_size,
+            self.dataset_info["no_dependencies"],
+            model_config.dependency_size,
+            self.dataset_info["no_entity_types"],
+            model_config.entitytype_size,
+            self.dataset_info["no_entity_tags"],
+            model_config.entitytag_size,
+            model_config.bilstm_path_hidden_size,
+            model_config.lstm_path_hidden_size,
+            model_config.tree_lstm_hidden_size,
+            model_config.bilstm_dropout_chance,
+            model_config.lstm_dropout_chance,
+            model_config.tree_lstm_dropout_chance,
+            self.dataset_info["no_relations"],
+            ablation = self.taskB_ablation
+        )
+
+        if load_path is not None:
+            print("Loading taskB_model weights..")
+            self.taskB_model.load_state_dict(torch.load(load_path))
+
+        if use_cuda:
+            self.taskB_model.cuda(device)
 
 
     def evaluate_taskA_model(self, dataset):
@@ -89,6 +163,7 @@ class TransferAlgorithm(Algorithm):
 
         self.taskA_model = BERTStackedBiLSTMCRFModel(
             self.fake_dependency_dataset.embedding_size,
+            model_config.bert_size,
             self.fake_dependency_dataset.wv,
             self.fake_dependency_dataset.no_chars,
             model_config.charencoding_size,

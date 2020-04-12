@@ -1216,7 +1216,7 @@ class MajaDataset(
     BERTComponent,
     ):
 
-    def __init__(self, collection: Collection, wv):
+    def __init__(self, collection: Collection, wv, load = True):
         print("Loading nlp...")
         TokenizerComponent.__init__(self)
         EmbeddingComponent.__init__(self, wv)
@@ -1225,13 +1225,14 @@ class MajaDataset(
         DependencyComponent.__init__(self)
         DependencyTreeComponent.__init__(self)
         EntityTypesComponent.__init__(self)
-        RelationComponent.__init__(self, include_none = False)
+        RelationComponent.__init__(self, include_none = True)
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
         BERTComponent.__init__(self)
 
-        self.dataxsentence = self._get_sentences_data(collection)
-        self.data = self.get_data()
+        if load:
+            self.dataxsentence = self._get_sentences_data(collection)
+            self.data = self.get_data()
 
     def _get_sentences_data(self, collection):
         data = []
