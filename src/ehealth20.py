@@ -284,6 +284,13 @@ class MAJA2020(Algorithm):
             lr = train_config.optimizer.lr,
         )
 
+        history = {
+            "train": [],
+            "validation": []
+        }
+
+        best_cv_acc = 0
+
         for epoch in range(train_config.epochs):
 
             train_data = list(dataset.get_shuffled_data())
@@ -334,9 +341,12 @@ class MAJA2020(Algorithm):
             for key, value in val_diagnostics.items():
                 print(f"[{epoch + 1}] val_{key}: {value :0.3}")
 
-        if save_path is not None:
-            print("Saving weights...")
-            torch.save(self.taskA_model.state_dict(), save_path)
+            if save_path is not None and val_diagnostics["accuracy"] > best_cv_acc:
+                print("Saving taskA_model weights...")
+                best_cv_acc = val_diagnostics["accuracy"]
+                torch.save(self.taskA_model.state_dict(), save_path)
+
+        return history
 
     def train_taskB_model(self, train_collection, validation_collection, train_config_path, save_path=None):
 
@@ -535,6 +545,8 @@ class MAJA2020(Algorithm):
 
                 if torch.max(out_rel) > threshold:
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, dataset.relations[torch.argmax(out_rel)]))
+
+
 
 class TransferAlgorithm(Algorithm):
 
