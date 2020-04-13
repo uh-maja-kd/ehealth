@@ -1,6 +1,7 @@
 import torch
 import torch.optim as optim
 from torch.nn import CrossEntropyLoss, BCELoss
+from torch.nn.functional import one_hot
 from tqdm import tqdm
 from itertools import product
 
@@ -30,6 +31,7 @@ print(f"Using device: {device}")
 
 
 class MAJA2020(Algorithm):
+
     def __init__(
         self,
         taskA_ablation,
@@ -109,7 +111,7 @@ class MAJA2020(Algorithm):
             model_config.bilstm_dropout_chance,
             model_config.lstm_dropout_chance,
             model_config.tree_lstm_dropout_chance,
-            self.dataset_info["no_relations"],
+            self.dataset_info["no_relations"] - 1,
             ablation = self.taskB_ablation
         )
 
@@ -189,6 +191,8 @@ class MAJA2020(Algorithm):
         total_loss = 0
         total_rels = 0
 
+        no_relations = self.dataset_info["no_relations"]
+
         criterion = BCELoss(reduction = "sum")
         if use_cuda:
             criterion.cuda(device)
@@ -220,7 +224,7 @@ class MAJA2020(Algorithm):
                 )
                 y_rel = y_rel.to(device)
 
-                gold_rel = F.one_hot(y_rel, no_relations-1).type(torch.float32).to(device)
+                gold_rel = one_hot(y_rel, no_relations - 1).type(torch.float32).to(device)
                 out_rel = self.taskB_model(X)
 
                 total_loss += criterion(out_rel, gold_rel).item()
@@ -360,8 +364,8 @@ class MAJA2020(Algorithm):
 
         self.load_taskB_model(model_config_path)
 
-        optimizer = Adam(
-            model.parameters(),
+        optimizer = optim.Adam(
+            self.taskB_model.parameters(),
             lr = train_config.optimizer.lr
         )
 
@@ -375,6 +379,8 @@ class MAJA2020(Algorithm):
         }
 
         best_cv_f1 = 0
+
+        no_relations = self.dataset_info["no_relations"]
 
         for epoch in range(train_config.epochs):
             self.taskB_model.train()
@@ -415,8 +421,8 @@ class MAJA2020(Algorithm):
                         destination
                     )
 
-                    gold_rel = F.one_hot(torch.tensor(y_rel), no_relations-1).type(torch.float32).unsqueeze(0) \
-                    if y_rel < 13 else torch.zeros(1,no_relations - 1)
+                    gold_rel = one_hot(torch.tensor(y_rel), no_relations - 1).type(torch.float32).unsqueeze(0) \
+                    if y_rel < no_relations - 1 else torch.zeros(1, no_relations - 1)
                     gold_rel = gold_rel.to(device)
                     out_rel = self.taskB_model(X)
 
@@ -426,11 +432,11 @@ class MAJA2020(Algorithm):
                 optimizer.step()
 
             print("Evaluating on training data...")
-            results_train = evaluate(model, dataset)
+            results_train = self.evaluate_taskB_model(dataset)
             history["train"].append(results_train)
 
             print("Evaluating on validation data...")
-            results_val = evaluate(model, val_data)
+            results_val = self.evaluate_taskB_model(val_data)
             history["validation"].append(results_val)
 
             for key, value in results_train.items():
@@ -442,7 +448,7 @@ class MAJA2020(Algorithm):
             if save_path is not None and results_val["f1"] > best_cv_f1:
                 print("Saving taskB_model weights...")
                 best_cv_f1 = results_val["f1"]
-                torch.save(model.state_dict(), save_path)
+                torch.save(self.taskB_model.state_dict(), save_path)
 
         return history
 
@@ -502,7 +508,7 @@ class MAJA2020(Algorithm):
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
 
-    def run_taskB_model(self, collection, model_config = None, load_path=None):
+    def run_taskB_model(self, collection, threshold = 0.5, model_config = None, load_path=None):
 
         print("Running task B...")
         dataset = MajaDataset(collection, self.dataset_info["wv"])
@@ -513,6 +519,7 @@ class MAJA2020(Algorithm):
 
         self.taskB_model.eval()
 
+        print("Running...")
         for data in tqdm(dataset):
             * X, y_ent_type, y_ent_tag, relations, evaluation = data
 
@@ -528,7 +535,7 @@ class MAJA2020(Algorithm):
                 bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
-                _,
+                trees,
             ) = X
 
             head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
