@@ -241,16 +241,14 @@ class BMEWOVTagsComponent:
 
 
 class BERTComponent:
+    tokenizer = None
+    bert_model = None
+
     def __init__(self):
-        self.bert_vector_size = 9216 
+        self.bert_vector_size = 9216
         self.sent_vector_size = 768
-        self.tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
-        self.bert_model = BertModel.from_pretrained('bert-base-multilingual-uncased')
-        #self.beto_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/beto_model')
-        #self.multilingual_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
-        #self.bio_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/second_bert_model')
-        #self.multilingual_bert_model.train()
-        #self.bio_bert_model.train()
+        self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
+        self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained('bert-base-multilingual-uncased')
         self.bert_model.eval()
 
 
@@ -264,34 +262,34 @@ class BERTComponent:
             token = tokenized_sentence[i]
             if token == '[CLS]' or token == '[SEP]':
                 continue
-            
+
             if token[0:2] == '##':
                 sup += 1
                 continue
-            
+
             elif token == '.' and i != len(tokenized_sentence) - 2:
                 sup += 1
                 point = True
                 continue
-            
+
             elif point == True:
                 sup += 1
                 point = False
                 continue
-            
+
             elif start == False:
                 start = True
                 inf = i
                 sup = i
-            
+
             else:
                 sup += 1
                 spans.append((inf, sup))
                 inf = i
                 sup = i
-  
+
         return spans
-    
+
     def _sum_merge(self, token_vec_sums, inf, sup):
         return torch.sum(torch.stack(token_vec_sums[inf:sup]), dim=0)
 
@@ -306,12 +304,11 @@ class BERTComponent:
         for inf,sup in spans:
             vec = self._mean_merge(token_vec_sums, inf, sup)
             real_vec.append(vec)
-        
+
         return real_vec
 
     def get_bert_embeddings(self, sentence, spans):
         words = [sentence[beg:end] for (beg, end) in spans]
-        # sentence = '[CLS] ' + sentence + ' [SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
         tokenized_sentence = ['[CLS]'] + tokenized_sentence + ['[SEP]']
         tokens_spans = self.get_spans_bert_tokens(tokenized_sentence)
@@ -326,18 +323,18 @@ class BERTComponent:
             #    encoded_layers, _ = self.bio_bert_model(tokens_tensor, segments_tensors)
             #except:
             encoded_layers, _ = self.bert_model(tokens_tensor, segments_tensors)
-        
+
         token_embeddings = torch.stack(encoded_layers, dim=0)
         token_embeddings = torch.squeeze(token_embeddings, dim=1)
         token_embeddings = token_embeddings.permute(1,0,2)
-        
+
         token_vec_sums = []
 
         for token in token_embeddings:
             #sum_vec = torch.sum(token[-4:], dim=0)
             cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4], token[-5], token[-6], token[-7], token[-8], token[-9], token[-10], token[-11], token[-12]), dim=-1)
             token_vec_sums.append(cat_vec)
-        
+
         token_vecs = encoded_layers[11][0]
         sentence_embedding = torch.mean(token_vecs, dim=0)
         bert_embeddings = self._get_merge_tensors(token_vec_sums, tokens_spans)
@@ -354,7 +351,7 @@ class BERTComponent:
                 if word == ' ':
                     bert_embeddings = bert_embeddings[:i] + [pad_tensor] + bert_embeddings[i:]
             bert_embeddings.append(pad_tensor)
-        
+
         bert_size = len(bert_embeddings)
         if bert_size < spans_size:
             bert_embeddings.append(pad_tensor)

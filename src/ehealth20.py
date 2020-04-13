@@ -272,12 +272,14 @@ class MAJA2020(Algorithm):
         }
 
 
-    def train_taskA_model(self, train_collection, validation_collection, train_config_path, save_path=None):
+    def train_taskA_model(self, train_collection, validation_collection, model_config_path, train_config_path, save_path=None):
 
         train_config = self.builder.parse_config(train_config_path).taskA
 
         dataset = MajaDataset(train_collection, self.dataset_info["wv"])
         val_data = MajaDataset(validation_collection, self.dataset_info["wv"])
+
+        self.load_taskA_model(model_config_path)
 
         optimizer = optim.Adam(
             self.taskA_model.parameters(),
@@ -323,8 +325,6 @@ class MAJA2020(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
 
-                train_total_words += len(trees)
-
                 loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                 loss_ent_type.backward(retain_graph=True)
 
@@ -351,9 +351,14 @@ class MAJA2020(Algorithm):
 
         return history
 
-    def train_taskB_model(self, train_collection, validation_collection, train_config_path, save_path=None):
+    def train_taskB_model(self, train_collection, validation_collection, model_config_path, train_config_path, save_path=None):
 
         train_config = self.builder.parse_config(train_config_path).taskB
+
+        dataset = MajaDataset(train_collection, self.dataset_info["wv"])
+        val_data = MajaDataset(validation_collection, self.dataset_info["wv"])
+
+        self.load_taskB_model(model_config_path)
 
         optimizer = Adam(
             model.parameters(),
@@ -442,14 +447,14 @@ class MAJA2020(Algorithm):
         return history
 
 
-    def run_taskA_model(self, collection, load_path=None):
+    def run_taskA_model(self, collection, model_config = None, load_path=None):
 
         print("Running task A...")
-        dataset = MajaDataset(train_collection, self.dataset_info["wv"])
+        dataset = MajaDataset(collection, self.dataset_info["wv"])
 
         if load_path is not None:
             print("Loading weights...")
-            self.load_taskA_model(load_path)
+            self.load_taskA_model(model_config, load_path)
 
         self.taskA_model.eval()
 
@@ -497,14 +502,14 @@ class MAJA2020(Algorithm):
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
 
-    def run_taskB_model(self, collection, load_path=None):
+    def run_taskB_model(self, collection, model_config = None, load_path=None):
 
         print("Running task B...")
         dataset = MajaDataset(collection, self.dataset_info["wv"])
 
         if load_path is not None:
             print("Loading weights...")
-            self.load_taskB_model(load_path)
+            self.load_taskB_model(model_config, load_path)
 
         self.taskB_model.eval()
 

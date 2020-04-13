@@ -1228,6 +1228,7 @@ class MajaDataset(
         RelationComponent.__init__(self, include_none = True)
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
+        print("Loading BERT...")
         BERTComponent.__init__(self)
 
         if load:
