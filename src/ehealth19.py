@@ -912,12 +912,25 @@ class DependencyJointAlgorithm(Algorithm):
 
 class TransferAlgorithm(Algorithm):
 
-    def __init__(self):
+    def __init__(
+        self,
+        ablation = {
+            "word_info": True,
+            "bert_info": True,
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }
+    ):
         self.taskA_model = None
         self.taskB_model = None
         self.taskB_recog_model_path = None
         self.taskB_recog_model_oracle = None
         self.taskB_class_model = None
+
+        self.ablation = ablation
 
         builder = ConfigBuilder()
         model_configA = builder.parse_config('./configs/transfer_models/config_StackedBiLSMTCRF.json')
@@ -1676,6 +1689,7 @@ class TransferAlgorithm(Algorithm):
             model_config.dropout_chance,
             dataset.no_entity_types,
             dataset.no_entity_tags,
+            ablation = self.ablation
         )
 
         optimizer = optim.Adam(

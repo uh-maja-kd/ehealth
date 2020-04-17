@@ -740,11 +740,21 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         dropout_chance,
         no_entity_types,
         no_entity_tags,
+        ablation = {
+            "word_info": True,
+            "bert_info": True,
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }
         ):
 
         super().__init__()
 
         self.wv = wv
+        self.ablation = ablation
 
         #INPUT PROCESSING
 
@@ -757,8 +767,18 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         #POSTtag Embedding layer
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
 
+        bilstm_input_size - (
+           (embedding_size if ablation["word_info"] else 0) +
+           (bert_embedding_size if ablation["bert_info"] else 0) +
+           (charencoding_size if ablation["chars_info"] else 0) +
+           (postag_size if ablation["postag"] else 0) +
+           (dependency_size if ablation["dependency"] else 0) +
+           (entity_type_size if ablation["entity_type"] else 0) +
+           (entity_tag_size if ablation["entity_tag"] else 0) 
+        )
+
         #Word-encoding BiLSTMs
-        self.word_bilstm1 = BiLSTM(bert_embedding_size + charencoding_size + postag_size, bilstm_hidden_size // 2, return_sequence=True)
+        self.word_bilstm1 = BiLSTM(bilstm_input_size, bilstm_hidden_size // 2, return_sequence=True)
         self.word_bilstm2 = BiLSTM(bilstm_hidden_size, bilstm_hidden_size//2, return_sequence=True)
 
         #OUTPUT
@@ -782,22 +802,23 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         ) = X
 
         #obtaining embeddings vectors
-        #word_embeddings = self.word_embedding(word_inputs)
+        word_embeddings = self.word_embedding(word_inputs) if self.ablation["word_info"] else None
         
-        char_embeddings = self.char_embedding(char_inputs)
-        char_embeddings = self.dropout_in(char_embeddings)
+        char_embeddings = self.char_embedding(char_inputs) if self.ablation["chars_info"] else None
+        char_embeddings = self.dropout_in(char_embeddings) if self.ablation["chars_info"] else None
 
-        postag_embeddings = self.postag_embedding(postag_inputs)
-        postag_embeddings = self.dropout_in(postag_embeddings)
+        postag_embeddings = self.postag_embedding(postag_inputs) if self.ablation["postag"] else None
+        postag_embeddings = self.dropout_in(postag_embeddings) if self.ablation["postag"] else None
 
-        bilstm_inputs = torch.cat(
-            (
-                #word_embeddings,
+        bert_embeddings = bert_embeddings if self.ablation["bert_info"] else None
+
+        bilstm_inputs = torch.cat([x for x in [
+                word_embeddings,
                 char_embeddings,
                 bert_embeddings,
                 #sent_embedding,
                 postag_embeddings
-            ), dim=-1)
+            ] if x is not None], dim = -1)
 
         #encoding those inputs
         bilstm_inputs = self.dropout_rnn_in(bilstm_inputs)
