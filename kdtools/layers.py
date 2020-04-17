@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 
+from pytorch_pretrained_bert import BertTokenizer, BertModel, BertForMaskedLM
+
 def argmax(vec):
     # return the argmax as a python int
     _, idx = torch.max(vec, 1)
@@ -284,3 +286,127 @@ class CharCNN(nn.Module):
         char = self.net(char).max(dim=2)[0]
         # [batch, sent_length, out_channels]
         return char.view(char_size[0], char_size[1], -1)
+
+class BERT_Model(nn.Module):
+    def __init__(self):
+        super(BERT_Model, self).__init__()
+        self.bert_vector_size = 9216 
+        self.sent_vector_size = 768
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
+        self.bert_model = BertModel.from_pretrained('bert-base-multilingual-uncased')
+        #self.beto_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/beto_model')
+        #self.multilingual_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/bert_model')
+        #self.bio_bert_model = BertModel.from_pretrained('D:/TESIS/ehealth/configs/second_bert_model')
+        #self.multilingual_bert_model.train()
+        #self.bio_bert_model.train()
+        #self.beto_model.train()
+        self.bert_model.train()
+
+
+    def get_spans_bert_tokens(self, tokenized_sentence):
+        spans = []
+        inf = 1
+        sup = 1
+        start = False
+        point = False
+        for i in range(len(tokenized_sentence)):
+            token = tokenized_sentence[i]
+            if token == '[CLS]' or token == '[SEP]':
+                continue
+            
+            if token[0:2] == '##':
+                sup += 1
+                continue
+            
+            elif token == '.' and i != len(tokenized_sentence) - 2:
+                sup += 1
+                point = True
+                continue
+            
+            elif point == True:
+                sup += 1
+                point = False
+                continue
+            
+            elif start == False:
+                start = True
+                inf = i
+                sup = i
+            
+            else:
+                sup += 1
+                spans.append((inf, sup))
+                inf = i
+                sup = i
+  
+        return spans
+    
+    def _sum_merge(self, token_vec_sums, inf, sup):
+        return torch.sum(torch.stack(token_vec_sums[inf:sup]), dim=0)
+
+    def _mean_merge(self, token_vec_sums, inf, sup):
+        return torch.mean(torch.stack(token_vec_sums[inf:sup]), dim=0)
+
+    def _last_merge(self, token_vec_sums, inf, sup):
+        return token_vec_sums[sup]
+
+    def _get_merge_tensors(self, token_vec_sums, spans):
+        real_vec = []
+        for inf,sup in spans:
+            vec = self._mean_merge(token_vec_sums, inf, sup)
+            real_vec.append(vec)
+        
+        return real_vec
+
+    def forward(self, X):
+
+        sentence, spans = X
+        words = [sentence[beg:end] for (beg, end) in spans]
+        sentence = '[CLS] ' + sentence + ' [SEP]'
+        tokenized_sentence = self.tokenizer.tokenize(sentence)
+        tokens_spans = self.get_spans_bert_tokens(tokenized_sentence)
+        indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
+        segments_ids = [1] * len(tokenized_sentence)
+
+        tokens_tensor = torch.tensor([indexed_tokens])
+        segments_tensors = torch.tensor([segments_ids])
+
+        #with torch.no_grad():
+            #try:
+            #    encoded_layers, _ = self.bio_bert_model(tokens_tensor, segments_tensors)
+            #except:
+        encoded_layers, _ = self.bert_model(tokens_tensor, segments_tensors)
+        
+        token_embeddings = torch.stack(encoded_layers, dim=0)
+        token_embeddings = torch.squeeze(token_embeddings, dim=1)
+        token_embeddings = token_embeddings.permute(1,0,2)
+        
+        token_vec_sums = []
+
+        for token in token_embeddings:
+            #sum_vec = torch.sum(token[-4:], dim=0)
+            cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4],token[-5], token[-6], token[-7], token[-8],token[-9], token[-10], token[-11], token[-12]), dim=-1)
+            token_vec_sums.append(cat_vec)
+        
+        token_vecs = encoded_layers[11][0]
+        sentence_embedding = torch.mean(token_vecs, dim=0)
+        bert_embeddings = self._get_merge_tensors(token_vec_sums, tokens_spans)
+        #bert_embeddings.append(sentence_embedding)
+        bert_size = len(bert_embeddings)
+        spans_size = len(spans)
+        pad_tensor = torch.zeros(self.bert_vector_size)
+
+        if bert_size == spans_size:
+            bert_embeddings[-1] = pad_tensor
+        elif bert_size < spans_size:
+            for i in range(len(words)):
+                word = words[i]
+                if word == ' ':
+                    bert_embeddings = bert_embeddings[:i] + [pad_tensor] + bert_embeddings[i:]
+            bert_embeddings.append(pad_tensor)
+        
+        bert_size = len(bert_embeddings)
+        if bert_size < spans_size:
+            bert_embeddings.append(pad_tensor)
+
+        return torch.stack(bert_embeddings)

@@ -32,6 +32,7 @@ from kdtools.models import (
     ShortestDependencyPathJointModel,
     StackedBiLSTMCRFModel,
     BERTStackedBiLSTMCRFModel,
+    BERT_CRF_Fine_Tune_Model,
     DependencyRelationsModel,
     ShortestDependencyPathRelationsModel,
     OracleParserModel,
@@ -2198,7 +2199,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
         self.ablation = ablation
 
     def load_taskA_model(self, load_path = None):
-        self.taskA_model = BERTStackedBiLSTMCRFModel(
+        self.taskA_model = BERT_CRF_Fine_Tune_Model(
             self.fake_taskA_dataset.embedding_size,
             self.fake_taskA_dataset.bert_vector_size,
             self.fake_taskA_dataset.wv,
@@ -2300,15 +2301,21 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             (
                 word_inputs,
                 char_inputs,
+                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
-                trees
+                trees,
+                sentence,
+                spans
             ) = X
 
             X = (
                 word_inputs.unsqueeze(0).to(device),
                 char_inputs.unsqueeze(0).to(device),
-                postag_inputs.unsqueeze(0).to(device)
+                bert_embeddings.unsqueeze(0).to(device),
+                postag_inputs.unsqueeze(0).to(device),
+                sentence,
+                spans
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
@@ -2497,15 +2504,21 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 (
                     word_inputs,
                     char_inputs,
+                    bert_embeddings,
                     postag_inputs,
                     dependency_inputs,
                     trees,
+                    sentence,
+                    spans
                 ) = X
 
                 X = (
                     word_inputs.unsqueeze(0).to(device),
                     char_inputs.unsqueeze(0).to(device),
-                    postag_inputs.unsqueeze(0).to(device)
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    sentence,
+                    spans
                 )
 
                 optimizer.zero_grad()
@@ -2717,7 +2730,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
     def run_taskA(self, collection: Collection, load_path = None):
         print("Running task A...")
-        dataset = DependencyJointModelDataset(collection, self.wv)
+        dataset = DependencyBERTJointModelDataset(collection, self.wv)
 
         if load_path is not None:
             print("Loading weights...")
@@ -2735,16 +2748,22 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
                 head_words,
                 word_inputs,
                 char_inputs,
+                bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
-                trees
+                trees,
+                sentence,
+                spans
             ) = data
 
             #ENTITIES
             X = (
                 word_inputs.unsqueeze(0).to(device),
                 char_inputs.unsqueeze(0).to(device),
-                postag_inputs.unsqueeze(0).to(device)
+                bert_embeddings.unsqueeze(0).to(device),
+                postag_inputs.unsqueeze(0).to(device),
+                sentence,
+                spans
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)

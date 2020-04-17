@@ -1114,8 +1114,8 @@ class DependencyBERTJointModelDataset(
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data,
-                #sentence.text,
-                #sentence_spans,
+                sentence.text,
+                sentence_spans,
                 sentence_labels,
                 sentence_tags,
                 relations,
@@ -1149,8 +1149,8 @@ class DependencyBERTJointModelDataset(
                 postag_embedding_data,
                 dependency_embedding_data,
                 dependencytree_data,
-                #sentence.text,
-                #sentence_spans,
+                sentence.text,
+                sentence_spans,
                 *extra
             ) = data
 
@@ -1165,9 +1165,9 @@ class DependencyBERTJointModelDataset(
                 #sentence_embedding_data,
                 postag_embedding_data,
                 dependency_embedding_data,
-                dependencytree_data
-                #sentence.text,
-                #sentence_spans
+                dependencytree_data,
+                sentence.text,
+                sentence_spans
             ))
 
         return eval

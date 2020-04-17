@@ -767,14 +767,14 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         #POSTtag Embedding layer
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
 
-        bilstm_input_size - (
+        bilstm_input_size = (
            (embedding_size if ablation["word_info"] else 0) +
            (bert_embedding_size if ablation["bert_info"] else 0) +
            (charencoding_size if ablation["chars_info"] else 0) +
            (postag_size if ablation["postag"] else 0) +
-           (dependency_size if ablation["dependency"] else 0) +
-           (entity_type_size if ablation["entity_type"] else 0) +
-           (entity_tag_size if ablation["entity_tag"] else 0) 
+           (dependency_size if ablation["dependency"] else 0)
+           #(entity_type_size if ablation["entity_type"] else 0) +
+           #(entity_tag_size if ablation["entity_tag"] else 0) 
         )
 
         #Word-encoding BiLSTMs
@@ -835,6 +835,70 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         _, entities_tags_output = self.entities_tags_crf_decoder(bilstm_encoding)
 
         return bilstm_encoding, entities_types_output, entities_tags_output
+
+class BERT_CRF_Fine_Tune_Model(nn.Module):
+    def __init__(
+        self,
+        embedding_size,
+        bert_embedding_size,
+        wv,
+        no_chars,
+        charencoding_size,
+        no_postags,
+        postag_size,
+        bilstm_hidden_size,
+        dropout_chance,
+        no_entity_types,
+        no_entity_tags,
+        ablation = {
+            "word_info": True,
+            "bert_info": True,
+            "chars_info": True,
+            "postag": True,
+            "dependency": True,
+            "entity_type": True,
+            "entity_tag": True
+        }
+        ):
+
+        super().__init__()
+
+        self.bert_model = BERT_Model()
+
+        #INPUT PROCESSING
+        #input_size = embedding_size + bert_embedding_size + charencoding_size + postag_size
+        input_size = bert_embedding_size
+
+        #OUTPUT
+        #Entity type
+        self.entities_types_crf_decoder = CRF(input_size, no_entity_types)
+
+        #Entites
+        self.entities_tags_crf_decoder = CRF(input_size, no_entity_tags)
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            bert_embeddings,
+            postag_inputs,
+            #dependency_inputs,
+            sentence,
+            spans
+        ) = X
+        
+        bert_embeddings = self.bert_model((sentence, spans))
+        bert_embeddings = bert_embeddings.unsqueeze(0)
+        bert_crf_inputs = bert_embeddings
+            
+        #OUTPUTS
+        #entity-types
+        _, entities_types_output = self.entities_types_crf_decoder(bert_crf_inputs)
+
+        #entity-tags
+        _, entities_tags_output = self.entities_tags_crf_decoder(bert_crf_inputs)
+
+        return bert_crf_inputs, entities_types_output, entities_tags_output
 
 class StackedBiLSTMCRFModel(nn.Module):
     def __init__(
