@@ -1692,6 +1692,9 @@ class TransferAlgorithm(Algorithm):
             ablation = self.ablation
         )
 
+        if use_cuda:
+            self.taskA_model.cuda(device)
+
         optimizer = optim.Adam(
             self.taskA_model.parameters(),
             lr=train_config.optimizer.lr,
@@ -1709,6 +1712,9 @@ class TransferAlgorithm(Algorithm):
             print("Optimizing...")
             for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, _ = data
+                
+                y_ent_type = y_ent_type.to(device)
+                y_ent_tag = y_ent_tag.to(device)
 
                 (
                     word_inputs,
@@ -1720,11 +1726,11 @@ class TransferAlgorithm(Algorithm):
                 ) = X
 
                 X = (
-                    word_inputs.unsqueeze(0),
-                    char_inputs.unsqueeze(0),
-                    bert_embeddings.unsqueeze(0),
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
                     #sent_embedding.unsqueeze(0),
-                    postag_inputs.unsqueeze(0)
+                    postag_inputs.unsqueeze(0).to(device)
                 )
 
                 optimizer.zero_grad()
@@ -2186,22 +2192,25 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
         self.wv = Word2VecKeyedVectors.load("./trained/embeddings/wiki_classic/wiki_classic.wv")
 
+        self.fake_taskA_dataset = DependencyBERTJointModelDataset(Collection(), self.wv)
         self.fake_dependency_dataset = DependencyJointModelDataset(Collection(), self.wv)
 
         self.ablation = ablation
 
     def load_taskA_model(self, load_path = None):
-        self.taskA_model = StackedBiLSTMCRFModel(
-            self.fake_dependency_dataset.embedding_size,
-            self.fake_dependency_dataset.wv,
-            self.fake_dependency_dataset.no_chars,
-            50,
-            self.fake_dependency_dataset.no_postags,
-            50,
+        self.taskA_model = BERTStackedBiLSTMCRFModel(
+            self.fake_taskA_dataset.embedding_size,
+            self.fake_taskA_dataset.bert_vector_size,
+            self.fake_taskA_dataset.wv,
+            self.fake_taskA_dataset.no_chars,
+            100,
+            self.fake_taskA_dataset.no_postags,
+            100,
             300,
-            0.2,
-            self.fake_dependency_dataset.no_entity_types,
-            self.fake_dependency_dataset.no_entity_tags,
+            0.5,
+            self.fake_taskA_dataset.no_entity_types,
+            self.fake_taskA_dataset.no_entity_tags,
+            ablation = self.ablation
         )
 
         if load_path is not None:
@@ -2460,12 +2469,12 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
 
         self.load_taskA_model()
 
-        dataset = DependencyJointModelDataset(train_collection, self.wv)
-        val_data = DependencyJointModelDataset(validation_collection, self.wv)
+        dataset = DependencyBERTJointModelDataset(train_collection, self.wv)
+        val_data = DependencyBERTJointModelDataset(validation_collection, self.wv)
 
         optimizer = optim.Adam(
             self.taskA_model.parameters(),
-            lr=0.001,
+            lr=0.0009,
         )
 
         cv_best_acc = 0
