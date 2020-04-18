@@ -77,7 +77,8 @@ class MAJA2020(Algorithm):
             model_config.bilstm_hidden_size,
             model_config.dropout_chance,
             self.dataset_info["no_entity_types"],
-            self.dataset_info["no_entity_tags"]
+            self.dataset_info["no_entity_tags"],
+            ablation = self.taskA_ablation
         )
 
         if load_path is not None:

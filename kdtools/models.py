@@ -741,7 +741,7 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         no_entity_types,
         no_entity_tags,
         ablation = {
-            "word_info": True,
+            "word_info": False,
             "bert_info": True,
             "chars_info": True,
             "postag": True,
@@ -771,8 +771,8 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
            (embedding_size if ablation["word_info"] else 0) +
            (bert_embedding_size if ablation["bert_info"] else 0) +
            (charencoding_size if ablation["chars_info"] else 0) +
-           (postag_size if ablation["postag"] else 0) +
-           (dependency_size if ablation["dependency"] else 0)
+           (postag_size if ablation["postag"] else 0) 
+           #(dependency_size if ablation["dependency"] else 0)
            #(entity_type_size if ablation["entity_type"] else 0) +
            #(entity_tag_size if ablation["entity_tag"] else 0) 
         )
@@ -890,7 +890,7 @@ class BERT_CRF_Fine_Tune_Model(nn.Module):
         ) = X
         
         bert_embeddings = self.bert_model((sentence, spans))
-        bert_embeddings = bert_embeddings.unsqueeze(0)
+        bert_embeddings = bert_embeddings.unsqueeze(0).to(device)
         bert_crf_inputs = bert_embeddings
             
         #OUTPUTS
