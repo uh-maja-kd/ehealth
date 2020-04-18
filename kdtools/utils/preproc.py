@@ -247,8 +247,8 @@ class BERTComponent:
     def __init__(self):
         self.bert_vector_size = 9216
         self.sent_vector_size = 768
-        self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
-        self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained('bert-base-multilingual-uncased')
+        self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained('bert-base-multilingual-cased')
+        self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained('bert-base-multilingual-cased')
         self.bert_model.eval()
 
 

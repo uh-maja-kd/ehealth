@@ -799,6 +799,8 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
             bert_embeddings,
             #sent_embedding,
             postag_inputs
+            #sentence,
+            #spans
         ) = X
 
         #obtaining embeddings vectors

@@ -2490,7 +2490,7 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             "validation": []
         }
 
-        for epoch in range(1):
+        for epoch in range(10):
             train_data = list(dataset.get_shuffled_data())
 
             self.taskA_model.train()
