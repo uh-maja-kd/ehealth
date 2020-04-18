@@ -27,7 +27,7 @@ from numpy.random import random
 
 use_cuda = torch.cuda.is_available()
 device = torch.device('cuda:0' if use_cuda else 'cpu')
-torch.cuda.set_device(0)
+
 print(f"Using device: {device}")
 
 
@@ -329,7 +329,7 @@ class MAJA2020(Algorithm):
 
                 optimizer.zero_grad()
 
-                sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
+                sentence_features.to(device), out_ent_type, out_ent_tag = self.taskA_model(X)
 
                 loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                 loss_ent_type.backward(retain_graph=True)
