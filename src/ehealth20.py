@@ -329,8 +329,9 @@ class MAJA2020(Algorithm):
 
                 optimizer.zero_grad()
 
-                sentence_features.to(device), out_ent_type, out_ent_tag = self.taskA_model(X)
+                sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
 
+                sentence_features.to(device)
                 loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)
                 loss_ent_type.backward(retain_graph=True)
 
