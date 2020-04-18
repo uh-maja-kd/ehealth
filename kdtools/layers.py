@@ -170,7 +170,7 @@ class CRF(nn.Module):
     def _score_sentence(self, feats, tags):
         # Gives the score of a provided tag sequence
         score = torch.zeros(1)
-        tags = torch.cat([torch.tensor([self.START_TAG], dtype=torch.long), tags], device='cuda')
+        tags = torch.cat([torch.tensor([self.START_TAG], dtype=torch.long, device='cuda'), tags])
         for i, feat in enumerate(feats):
             score = score + \
                 self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
