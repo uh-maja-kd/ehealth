@@ -133,7 +133,7 @@ class CRF(nn.Module):
 
     def _forward_alg(self, feats):
         # Do the forward algorithm to compute the partition function
-        init_alphas = torch.full((1, self.tagset_size), -10000.)
+        init_alphas = torch.full((1, self.tagset_size), -10000., device='cuda')
         # START_TAG has all of the score.
         init_alphas[0][self.START_TAG] = 0.
 
