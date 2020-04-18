@@ -27,6 +27,7 @@ from numpy.random import random
 
 use_cuda = torch.cuda.is_available()
 device = torch.device('cuda:0' if use_cuda else 'cpu')
+torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
 print(f"Using device: {device}")
 
