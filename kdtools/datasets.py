@@ -1401,6 +1401,8 @@ class MajaDataset(
                 postag_embedding_data,
                 dependency_data,
                 dependencytree_data,
+                sentence.text,
+                sentence_spans,
                 sentence_labels,
                 sentence_tags,
                 relations,

@@ -763,7 +763,6 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
 
         #Char Embedding layer
         self.char_embedding = CharCNN(1, no_chars, charencoding_size)
-
         #POSTtag Embedding layer
         self.postag_embedding = nn.Embedding(no_postags, postag_size)
 
@@ -860,13 +859,14 @@ class BERT_CRF_Fine_Tune_Model(nn.Module):
             "dependency": True,
             "entity_type": True,
             "entity_tag": True
-        }
+        },
+        device
         ):
 
         super().__init__()
 
         self.bert_model = BERT_Model()
-
+        self.device = device
         #INPUT PROCESSING
         #input_size = embedding_size + bert_embedding_size + charencoding_size + postag_size
         input_size = bert_embedding_size
@@ -890,7 +890,7 @@ class BERT_CRF_Fine_Tune_Model(nn.Module):
         ) = X
         
         bert_embeddings = self.bert_model((sentence, spans))
-        bert_embeddings = bert_embeddings.unsqueeze(0).to(device)
+        bert_embeddings = bert_embeddings.unsqueeze(0).to(self.device)
         bert_crf_inputs = bert_embeddings
             
         #OUTPUTS

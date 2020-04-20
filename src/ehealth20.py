@@ -68,7 +68,7 @@ class MAJA2020(Algorithm):
 
         model_config = self.builder.parse_config(model_config_path)
 
-        self.taskA_model = BERTStackedBiLSTMCRFModel(
+        self.taskA_model = BERT_CRF_Fine_Tune_Model(
             self.dataset_info["embedding_size"],
             model_config.bert_size,
             self.dataset_info["wv"],
@@ -80,7 +80,8 @@ class MAJA2020(Algorithm):
             model_config.dropout_chance,
             self.dataset_info["no_entity_types"],
             self.dataset_info["no_entity_tags"],
-            ablation = self.taskA_ablation
+            ablation = self.taskA_ablation,
+            device = device
         )
 
         if load_path is not None:
@@ -148,6 +149,8 @@ class MAJA2020(Algorithm):
                 bert_embeddings,
                 postag_inputs,
                 dependency_inputs,
+                sentence,
+                spans,
                 _
             ) = X
 
@@ -155,7 +158,9 @@ class MAJA2020(Algorithm):
                 word_inputs.unsqueeze(0).to(device),
                 char_inputs.unsqueeze(0).to(device),
                 bert_embeddings.unsqueeze(0).to(device),
-                postag_inputs.unsqueeze(0).to(device)
+                postag_inputs.unsqueeze(0).to(device),
+                sentence,
+                spans
             )
 
             sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
@@ -318,6 +323,8 @@ class MAJA2020(Algorithm):
                     bert_embeddings,
                     postag_inputs,
                     dependency_inputs,
+                    sentence,
+                    spans,
                     _,
                 ) = X
 
@@ -325,7 +332,9 @@ class MAJA2020(Algorithm):
                     word_inputs.unsqueeze(0).to(device),
                     char_inputs.unsqueeze(0).to(device),
                     bert_embeddings.unsqueeze(0).to(device),
-                    postag_inputs.unsqueeze(0).to(device)
+                    postag_inputs.unsqueeze(0).to(device),
+                    sentence,
+                    spans
                 )
 
                 optimizer.zero_grad()
