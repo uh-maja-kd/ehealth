@@ -860,7 +860,7 @@ class BERT_CRF_Fine_Tune_Model(nn.Module):
             "entity_type": True,
             "entity_tag": True
         },
-        device
+        device='cpu'
         ):
 
         super().__init__()
