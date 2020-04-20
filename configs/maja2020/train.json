@@ -1,6 +1,6 @@
 {
     "taskA": {
-        "epochs": 20,
+        "epochs": 5,
         "optimizer": {
             "lr": 0.0009
         }
