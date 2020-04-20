@@ -341,11 +341,11 @@ class MAJA2020(Algorithm):
 
                 sentence_features, out_ent_type, out_ent_tag = self.taskA_model(X)
 
-                sentence_features.to(device)
-                loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type).to(device)
+                #sentence_features.to(device)
+                loss_ent_type = self.taskA_model.entities_types_crf_decoder.neg_log_likelihood(sentence_features, y_ent_type)#.to(device)
                 loss_ent_type.backward(retain_graph=True)
 
-                loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag).to(device)
+                loss_ent_tag = self.taskA_model.entities_tags_crf_decoder.neg_log_likelihood(sentence_features, y_ent_tag)#.to(device)
                 loss_ent_tag.backward()
 
                 optimizer.step()
