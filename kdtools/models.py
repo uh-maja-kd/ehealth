@@ -889,7 +889,7 @@ class BERT_CRF_Fine_Tune_Model(nn.Module):
             spans
         ) = X
         
-        bert_embeddings = self.bert_model((sentence, spans))
+        bert_embeddings = self.bert_model(sentence, spans)
         bert_embeddings = bert_embeddings.unsqueeze(0).to(self.device)
         bert_crf_inputs = bert_embeddings
             

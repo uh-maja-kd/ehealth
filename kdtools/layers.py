@@ -358,9 +358,9 @@ class BERT_Model(nn.Module):
         
         return real_vec
 
-    def forward(self, X):
-
-        sentence, spans = X
+    def forward(self, sentence, spans):
+        #print("Este es el sentence", sentence)
+        #print("Esto son los spans", spans)
         words = [sentence[beg:end] for (beg, end) in spans]
         sentence = '[CLS] ' + sentence + ' [SEP]'
         tokenized_sentence = self.tokenizer.tokenize(sentence)
