@@ -16,7 +16,7 @@ from pathlib import Path
 
 from kdtools.datasets import MajaDataset
 
-from kdtools.models import BERTStackedBiLSTMCRFModel, BERTTreeBiLSTMPathModel
+from kdtools.models import BERTStackedBiLSTMCRFModel, BERTTreeBiLSTMPathModel, BERT_CRF_Fine_Tune_Model
 
 from kdtools.utils.bmewov import BMEWOV
 
