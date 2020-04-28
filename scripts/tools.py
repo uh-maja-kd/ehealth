@@ -158,7 +158,7 @@ class AnnFile:
         self.annotations = []
 
     def load(self, path):
-        with open(path) as fp:
+        with open(path, encoding="utf-8") as fp:
             for line in fp:
                 ann = self._parse(line)
                 if ann:

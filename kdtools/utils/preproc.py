@@ -248,7 +248,9 @@ class BERTComponent:
         self.bert_vector_size = 9216
         self.sent_vector_size = 768
         self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
+        BERTComponent.tokenizer = self.tokenizer
         self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained('bert-base-multilingual-uncased')
+        BERTComponent.bert_model = self.bert_model
         self.bert_model.eval()
 
 
@@ -355,6 +357,15 @@ class BERTComponent:
         bert_size = len(bert_embeddings)
         if bert_size < spans_size:
             bert_embeddings.append(pad_tensor)
+
+        if bert_size > spans_size:
+            for i in range(len(words)):
+                word = words[i]
+                if word == 'VHH-8':
+                    bert_embeddings = bert_embeddings[:i] + bert_embeddings[i + 1:]
+
+        if len(bert_embeddings) != spans_size:
+            print(sentence)
 
         return bert_embeddings
 

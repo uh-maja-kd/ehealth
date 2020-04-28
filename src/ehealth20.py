@@ -5,7 +5,7 @@ from torch.nn.functional import one_hot
 from tqdm import tqdm
 from itertools import product
 
-from scripts.submit import Algorithm
+from scripts.submit import Algorithm, Run, handle_args
 from scripts.utils import Collection, Keyphrase, Relation, Sentence
 from python_json_config import ConfigBuilder
 
@@ -250,14 +250,16 @@ class MAJA2020(Algorithm):
                     destination
                 )
 
+                try:
+                    gold_rel = torch.zeros(1, no_relations - 1).to(device)
+                    out_rel = self.taskB_model(X)
 
-                gold_rel = torch.zeros(1, no_relations - 1).to(device)
-                out_rel = self.taskB_model(X)
+                    total_loss += criterion(out_rel, gold_rel).item()
+                    total_rels += 1
 
-                total_loss += criterion(out_rel, gold_rel).item()
-                total_rels += 1
-
-                spurious2 += int(torch.max(out_rel) > threshold)
+                    spurious2 += int(torch.max(out_rel) > threshold)
+                except Exception as e:
+                    print(e)
 
         spurious = spurious1 + spurious2
 
@@ -367,6 +369,7 @@ class MAJA2020(Algorithm):
         optimizer = optim.Adam(
             self.taskB_model.parameters(),
             lr = train_config.optimizer.lr
+            # weight_decay = train_config.optimizer.weight_decay
         )
 
         criterion = BCELoss(reduction = "sum")
@@ -383,9 +386,12 @@ class MAJA2020(Algorithm):
         no_relations = self.dataset_info["no_relations"]
 
         for epoch in range(train_config.epochs):
+
+            train_data = list(dataset.get_shuffled_data())
+
             self.taskB_model.train()
             print("Optimizing...")
-            for data in tqdm(dataset):
+            for data in tqdm(train_data):
                 * X, y_ent_type, y_ent_tag, relations, _ = data
 
                 (
@@ -404,7 +410,7 @@ class MAJA2020(Algorithm):
                 positive_rels = relations["pos"]
                 if epoch % 5 == 0:
                     shuffle(relations["neg"])
-                negative_rels = relations["neg"][:3*len(positive_rels)]
+                negative_rels = relations["neg"][:train_config.negative_sampling*len(positive_rels)]
                 premuted_rels = permutation(positive_rels + negative_rels)
 
                 for origin, destination, y_rel in premuted_rels:
@@ -561,7 +567,16 @@ class MAJA2020(Algorithm):
                 if torch.max(out_rel) > threshold:
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, dataset.relations[torch.argmax(out_rel)]))
 
+    def run(self, collection, *args, taskA, taskB, **kargs):
+        print("----------------RUNNING-------------")
 
+        if taskA:
+            self.run_taskA_model(collection, "./configs/maja2020/taskA.json", "./trained/models/2020/taskA.ptdict")
+
+        if taskB:
+            self.run_taskB_model(collection, 0.4, "./configs/maja2020/taskB.json", "./trained/models/2020/taskB.ptdict")
+
+        return collection
 
 class TransferAlgorithm(Algorithm):
 
@@ -2492,10 +2507,33 @@ class BiLSTMCRFDepPathAlgorithm(Algorithm):
             self.run_taskA(collection, load_path)
 
 
+def main(tasks):
+    if not tasks:
+        warnings.warn("The run will have no effect since no tasks were given.")
+        return
+
+    taskA_ablation = {
+        "bert_embedding": True,
+        "word_embedding": False,
+        "chars_info": True,
+        "postag": True,
+        "dependency": False,
+    }
+
+    taskB_ablation = {
+        "bert_embedding": True,
+        "word_embedding": False,
+        "chars_info": True,
+        "postag": True,
+        "dependency": True,
+        "entity_type": True,
+        "entity_tag": True
+    }
+
+    maja = MAJA2020(taskA_ablation, taskB_ablation)
+    Run.submit("uh-makja-kd", tasks, maja)
+
+
 if __name__ == "__main__":
-    from pathlib import Path
-
-    algorithm = UHMajaModel()
-
-    training = Collection().load(Path("data/training/scenario.txt"))
-    algorithm.train(training)
+    tasks = handle_args()
+    main(tasks)

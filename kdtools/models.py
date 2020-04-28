@@ -1356,10 +1356,10 @@ class BERTTreeBiLSTMPathModel(nn.Module):
         path_encoded = path_encoded[:,-1,:]
         path_encoded = self.dropout2(path_encoded)
 
-        origin_tree_encoding = self.tree_lstm(trees[origin], inputs.squeeze(0))[1]
-        destination_tree_encoding = self.tree_lstm(trees[destination], inputs.squeeze(0))[1]
+        origin_tree_encoding = self.dropout3(self.tree_lstm(trees[origin], inputs.squeeze(0))[1])
+        destination_tree_encoding = self.dropout3(self.tree_lstm(trees[destination], inputs.squeeze(0))[1])
 
         encoding = torch.cat([origin_tree_encoding, destination_tree_encoding, path_encoded], dim = -1)
-        encoding = self.dropout3(encoding)
+        # encoding = self.dropout3(encoding)
 
         return torch.sigmoid(self.dense(encoding))
