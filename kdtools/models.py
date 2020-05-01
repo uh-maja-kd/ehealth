@@ -745,6 +745,7 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         super().__init__()
 
         self.wv = wv
+        self.bert_size = bert_embedding_size
 
         #INPUT PROCESSING
 
@@ -772,6 +773,7 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
         #Entites
         self.entities_tags_crf_decoder = CRF(bilstm_hidden_size, no_entity_tags)
 
+
     def forward(self, X):
         (
             word_inputs,
@@ -781,9 +783,10 @@ class BERTStackedBiLSTMCRFModel(nn.Module):
             postag_inputs
         ) = X
 
+        bert_embeddings = bert_embeddings[:,:,:self.bert_size]
         #obtaining embeddings vectors
         #word_embeddings = self.word_embedding(word_inputs)
-        
+
         char_embeddings = self.char_embedding(char_inputs)
         char_embeddings = self.dropout_in(char_embeddings)
 
