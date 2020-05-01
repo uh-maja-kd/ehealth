@@ -244,76 +244,125 @@ class BERTComponent:
     tokenizer = None
     bert_model = None
 
-    def __init__(self):
+    def __init__(self, model):
         self.bert_vector_size = 9216
         self.sent_vector_size = 768
-        self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained('bert-base-multilingual-uncased')
+        self.model = model
+        self.tokenizer = BERTComponent.tokenizer if BERTComponent.tokenizer else BertTokenizer.from_pretrained(model)
         BERTComponent.tokenizer = self.tokenizer
-        self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained('bert-base-multilingual-uncased')
+        self.bert_model = BERTComponent.bert_model if BERTComponent.bert_model else BertModel.from_pretrained(model)
         BERTComponent.bert_model = self.bert_model
         self.bert_model.eval()
 
 
-    def get_spans_bert_tokens(self, tokenized_sentence):
-        spans = []
-        inf = 1
-        sup = 1
-        start = False
-        point = False
-        for i in range(len(tokenized_sentence)):
-            token = tokenized_sentence[i]
-            if token == '[CLS]' or token == '[SEP]':
-                continue
+    def get_bert_spans(self, words, bert_tokens):
+        if self.model == 'bert-base-multilingual-uncased':
+            words = [self._flat_word(word) for word in words]
 
-            if token[0:2] == '##':
-                sup += 1
-                continue
+        i = 0
+        j = 1
+        idx = 0
 
-            elif token == '.' and i != len(tokenized_sentence) - 2:
-                sup += 1
-                point = True
-                continue
+        bert_words_indexes = []
+        bert_words = []
+        while i < len(words):
+            word = words[i]
 
-            elif point == True:
-                sup += 1
-                point = False
-                continue
+            bert_word = bert_tokens[j]
+            bert_word = bert_word[2:] if bert_word.startswith("##") else bert_word
+            bert_word = bert_word[idx:]
 
-            elif start == False:
-                start = True
-                inf = i
-                sup = i
+            #Spacing control
+            if word in [" ", "  ", "   "]:
+                bert_words.append([word])
+                bert_words_indexes.append([-1])
 
+            #When the current word is [UNK] for bert
+            elif bert_word == "[UNK]":
+                bert_words.append(["[UNK]"])
+                bert_words_indexes.append([j])
+                j += 1
+                idx = 0
+
+            #When the current word is contained in bert token. Very weird
+            elif len(word) < len(bert_word) and bert_word.find(word) >= 0:
+                bert_words.append([bert_word])
+                bert_words_indexes.append([j])
+
+                idx = bert_word.find(word) + len(word)
+                if idx == len(bert_word):
+                    j += 1
+                    idx = 0
+
+            #Otherwise
             else:
-                sup += 1
-                spans.append((inf, sup))
-                inf = i
-                sup = i
+                k = 0
+                span = []
+                span_indexes = []
 
-        return spans
+                while k < len(word):
+                    if word.find(bert_word, k) == k:
+                        span.append(bert_word)
+                        span_indexes.append(j)
+                        k += len(bert_word)
+                        j += 1
+                        idx = 0
+                        bert_word = bert_tokens[j]
+                        bert_word = bert_word[2:] if bert_word.startswith("##") else bert_word
+                    else:
+                        print("Error")
+                        return bert_words, bert_words_indexes
 
-    def _sum_merge(self, token_vec_sums, inf, sup):
-        return torch.sum(torch.stack(token_vec_sums[inf:sup]), dim=0)
+                bert_words.append(span)
+                bert_words_indexes.append(span_indexes)
 
-    def _mean_merge(self, token_vec_sums, inf, sup):
-        return torch.mean(torch.stack(token_vec_sums[inf:sup]), dim=0)
+            i += 1
 
-    def _last_merge(self, token_vec_sums, inf, sup):
-        return token_vec_sums[sup]
+        assert len(bert_words_indexes) == len(words)
 
-    def _get_merge_tensors(self, token_vec_sums, spans):
+        return bert_words, bert_words_indexes
+
+    def _flat_word(self, word):
+        word = word.lower()
+        word = word.replace("ñ", "n")
+        word = word.replace("á", "a")
+        word = word.replace("é", "e")
+        word = word.replace("í", "i")
+        word = word.replace("ó", "o")
+        word = word.replace("ú", "u")
+        word = word.replace("ä", "a")
+        word = word.replace("ü", "u")
+        word = word.replace("ö", "o")
+        word = word.replace("ū", "u")
+        word = word.replace("ā", "a")
+        word = word.replace("ī", "i")
+        word = word.replace("ș", "s")
+        word = word.replace("ã", "a")
+        word = word.replace("ô", "o")
+
+        return word
+
+    def _sum_merge(self, vectors):
+        return torch.sum(torch.stack(vectors), dim=0)
+
+    def _mean_merge(self, vectors):
+        return torch.mean(torch.stack(vectors), dim=0)
+
+    def _last_merge(self, vectors):
+        return vectors[-1]
+
+    def _get_merge_tensors(self, token_vec_sums, words_indexes):
+        pad_tensor = torch.zeros(self.bert_vector_size)
         real_vec = []
-        for inf,sup in spans:
-            vec = self._mean_merge(token_vec_sums, inf, sup)
-            real_vec.append(vec)
+        for word_indexes in words_indexes:
+            vectors = [(token_vec_sums[idx] if idx != -1 else pad_tensor) for idx in word_indexes]
+            real_vec.append(self._mean_merge(vectors))
 
         return real_vec
 
     def get_bert_embeddings(self, sentence, spans):
-        words = [sentence[beg:end] for (beg, end) in spans]
         tokenized_sentence = self.tokenizer.tokenize(sentence)
         tokenized_sentence = ['[CLS]'] + tokenized_sentence + ['[SEP]']
-        tokens_spans = self.get_spans_bert_tokens(tokenized_sentence)
         indexed_tokens = self.tokenizer.convert_tokens_to_ids(tokenized_sentence)
         segments_ids = [1] * len(tokenized_sentence)
 
@@ -321,9 +370,6 @@ class BERTComponent:
         segments_tensors = torch.tensor([segments_ids])
 
         with torch.no_grad():
-            #try:
-            #    encoded_layers, _ = self.bio_bert_model(tokens_tensor, segments_tensors)
-            #except:
             encoded_layers, _ = self.bert_model(tokens_tensor, segments_tensors)
 
         token_embeddings = torch.stack(encoded_layers, dim=0)
@@ -331,41 +377,14 @@ class BERTComponent:
         token_embeddings = token_embeddings.permute(1,0,2)
 
         token_vec_sums = []
-
         for token in token_embeddings:
-            #sum_vec = torch.sum(token[-4:], dim=0)
             cat_vec = torch.cat((token[-1], token[-2], token[-3], token[-4], token[-5], token[-6], token[-7], token[-8], token[-9], token[-10], token[-11], token[-12]), dim=-1)
             token_vec_sums.append(cat_vec)
 
-        token_vecs = encoded_layers[11][0]
-        sentence_embedding = torch.mean(token_vecs, dim=0)
-        bert_embeddings = self._get_merge_tensors(token_vec_sums, tokens_spans)
-        #bert_embeddings.append(sentence_embedding)
-        bert_size = len(bert_embeddings)
-        spans_size = len(spans)
-        pad_tensor = torch.zeros(self.bert_vector_size)
+        words = [sentence[beg:end] for (beg, end) in spans]
+        bert_words, bert_words_indexes = self.get_bert_spans(words, tokenized_sentence)
 
-        if bert_size == spans_size:
-            bert_embeddings[-1] = pad_tensor
-        elif bert_size < spans_size:
-            for i in range(len(words)):
-                word = words[i]
-                if word == ' ':
-                    bert_embeddings = bert_embeddings[:i] + [pad_tensor] + bert_embeddings[i:]
-            bert_embeddings.append(pad_tensor)
-
-        bert_size = len(bert_embeddings)
-        if bert_size < spans_size:
-            bert_embeddings.append(pad_tensor)
-
-        if bert_size > spans_size:
-            for i in range(len(words)):
-                word = words[i]
-                if word == 'VHH-8':
-                    bert_embeddings = bert_embeddings[:i] + bert_embeddings[i + 1:]
-
-        if len(bert_embeddings) != spans_size:
-            print(sentence)
+        bert_embeddings = self._get_merge_tensors(token_vec_sums, bert_words_indexes)
 
         return bert_embeddings
 
