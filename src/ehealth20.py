@@ -341,9 +341,11 @@ class MAJA2020(Algorithm):
 
             print("Evaluating on training data...")
             train_diagnostics = self.evaluate_taskA_model(train_data)
+            history["train"].append(results_train)
 
             print("Evaluating on validation data...")
             val_diagnostics = self.evaluate_taskA_model(val_data)
+            history["validation"].append(results_train)
 
             for key, value in train_diagnostics.items():
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")
@@ -513,6 +515,11 @@ class MAJA2020(Algorithm):
 
                 entity_id += 1
                 sentence.keyphrases.append(Keyphrase(sentence, entity_type, entity_id, kp_spans))
+
+        for sentence in collection.sentences:
+            for kp in sentence.keyphrases:
+                if kp.label == "<None>":
+                    kp.label = "Concept"
 
     def run_taskB_model(self, collection, threshold = 0.5, model_config = None, load_path=None):
 
@@ -2531,7 +2538,7 @@ def main(tasks):
     }
 
     maja = MAJA2020(taskA_ablation, taskB_ablation)
-    Run.submit("uh-makja-kd", tasks, maja)
+    Run.submit("uh-maja-kd", tasks, maja)
 
 
 if __name__ == "__main__":
