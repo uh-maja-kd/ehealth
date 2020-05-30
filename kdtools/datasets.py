@@ -1229,7 +1229,7 @@ class MajaDataset(
         BMEWOVTagsComponent.__init__(self)
         ShufflerComponent.__init__(self)
         print("Loading BERT...")
-        BERTComponent.__init__(self, 'bert-base-multilingual-cased')
+        BERTComponent.__init__(self, 'bert-base-multilingual-uncased')
 
         if load:
             self.dataxsentence = self._get_sentences_data(collection)

@@ -341,11 +341,11 @@ class MAJA2020(Algorithm):
 
             print("Evaluating on training data...")
             train_diagnostics = self.evaluate_taskA_model(train_data)
-            history["train"].append(results_train)
+            history["train"].append(train_diagnostics)
 
             print("Evaluating on validation data...")
             val_diagnostics = self.evaluate_taskA_model(val_data)
-            history["validation"].append(results_train)
+            history["validation"].append(val_diagnostics)
 
             for key, value in train_diagnostics.items():
                 print(f"[{epoch + 1}] train_{key}: {value :0.3}")

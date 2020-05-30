@@ -1,5 +1,5 @@
 {
-    "bert_size": 9216,
+    "bert_size": 3072,
     "charencoding_size": 100,
     "postag_size": 100,
     "bilstm_hidden_size": 300,
