@@ -1,3 +1,10 @@
+#Trained models and experiments
+trained/
+
+#Notebooks
+
+*.ipynb
+
 
 # File created using '.gitignore Generator' for Visual Studio Code: https://bit.ly/vscode-gig
 

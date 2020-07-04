@@ -1383,3 +1383,118 @@ class BERTTreeBiLSTMPathModel(nn.Module):
         encoding = torch.cat([origin_tree_encoding, destination_tree_encoding, path_encoded], dim = -1)
 
         return torch.sigmoid(self.dense(encoding))
+
+
+class BERTBiLSTMRelationModel(nn.Module):
+
+    def __init__(
+            self,
+            embedding_size,
+            wv,
+            bert_size,
+            no_chars,
+            charencoding_size,
+            no_postags,
+            postag_size,
+            no_dependencies,
+            dependency_size,
+            no_entity_types,
+            entity_type_size,
+            no_entity_tags,
+            entity_tag_size,
+            bilstm_entities_size,
+            dropout_entities_chance,
+            lstm_sentence_input_size,
+            lstm_sentence_hidden_size,
+            dropout_sentence1_chance,
+            dropout_sentence2_chance,
+            no_relations,
+            ablation = {
+                "bert_embedding": True,
+                "word_embedding": True,
+                "chars_info": True,
+                "postag": True,
+                "dependency": True,
+                "entity_type": True,
+                "entity_tag": True
+            }
+        ):
+
+        super().__init__()
+
+        self.ablation = ablation
+        self.bert_size = bert_size
+
+        if ablation["word_embedding"]:
+            self.word_embedding = PretrainedEmbedding(wv)
+        self.char_embedding = CharCNN(1, no_chars, charencoding_size)
+        self.postag_embedding = nn.Embedding(no_postags, postag_size)
+        self.dependency_embedding = nn.Embedding(no_dependencies, dependency_size)
+        self.entity_type_embedding = nn.Embedding(no_entity_types, entity_type_size)
+        self.entity_tag_embedding = nn.Embedding(no_entity_tags, entity_tag_size)
+
+        bilstm_input_size = (
+            (bert_size if ablation["bert_embedding"] else 0) +
+            (embedding_size if ablation["word_embedding"] else 0) +
+            (charencoding_size if ablation["chars_info"] else 0) +
+            (postag_size if ablation["postag"] else 0) +
+            (dependency_size if ablation["dependency"] else 0) +
+            (entity_type_size if ablation["entity_type"] else 0) +
+            (entity_tag_size if ablation["entity_tag"] else 0)
+        )
+
+        self.bilstm_origin = BiLSTM(bilstm_input_size, bilstm_entities_size//2, batch_first = True, return_sequence=False)
+        self.bilstm_destination = BiLSTM(bilstm_input_size, bilstm_entities_size//2, batch_first = True, return_sequence=False)
+        self.bilstm_sentence = BiLSTM(bilstm_input_size, lstm_sentence_input_size//2, batch_first = True, return_sequence=True)
+        self.lstm_sentence = nn.LSTM(lstm_sentence_input_size, lstm_sentence_hidden_size, batch_first = True)
+
+        self.dropout_entities = nn.Dropout(dropout_entities_chance)
+        self.dropout_sentence1 = nn.Dropout(dropout_sentence1_chance)
+        self.dropout_sentence2 = nn.Dropout(dropout_sentence2_chance)
+
+        dense_input_size = lstm_sentence_hidden_size + 2*bilstm_entities_size
+        self.dense = nn.Linear(dense_input_size, no_relations)
+
+    def forward(self, X):
+        (
+            word_inputs,
+            char_inputs,
+            bert_embeddings,
+            postag_inputs,
+            dependency_inputs,
+            entity_type_inputs,
+            entity_tag_inputs,
+            origin_tokens,
+            destination_tokens
+        ) = X
+
+        bert_embeddings = bert_embeddings[:,:,:self.bert_size] if self.ablation["bert_embedding"] else None
+        word_embeddings = self.word_embedding(word_inputs) if self.ablation["word_embedding"] else None
+        char_embeddings = self.char_embedding(char_inputs) if self.ablation["chars_info"] else None
+        postag_embeddings = self.postag_embedding(postag_inputs) if self.ablation["postag"] else None
+        dependency_embeddings = self.dependency_embedding(dependency_inputs) if self.ablation["dependency"] else None
+        type_embeddings = self.entity_type_embedding(entity_type_inputs) if self.ablation["entity_type"] else None
+        tag_embeddings = self.entity_tag_embedding(entity_tag_inputs) if self.ablation["entity_tag"] else None
+
+        inputs = torch.cat([x for x in [
+            bert_embeddings,
+            word_embeddings,
+            char_embeddings,
+            postag_embeddings,
+            dependency_embeddings,
+            type_embeddings,
+            tag_embeddings
+        ] if x is not None], dim = -1)
+
+        bilstm_origin_inputs = torch.cat([inputs[:, idx,:].unsqueeze(0) for idx in origin_tokens], dim=1)
+        origin_encoded = self.dropout_entities(self.bilstm_origin(bilstm_origin_inputs)[0])
+
+        bilstm_destination_inputs = torch.cat([inputs[:, idx,:].unsqueeze(0) for idx in destination_tokens], dim=1)
+        destination_encoded = self.dropout_entities(self.bilstm_destination(bilstm_destination_inputs)[0])
+
+        sentence_encoded = self.dropout_sentence1(self.bilstm_sentence(inputs)[0])
+        sentence_encoded = self.dropout_sentence2(self.lstm_sentence(sentence_encoded)[0][:,-1,:])
+
+        encoding = torch.cat([origin_encoded, destination_encoded, sentence_encoded], dim = -1)
+
+        return torch.sigmoid(self.dense(encoding))

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from kdtools.datasets import MajaDataset
 
-from kdtools.models import BERTStackedBiLSTMCRFModel, BERTTreeBiLSTMPathModel
+from kdtools.models import BERTStackedBiLSTMCRFModel, BERTTreeBiLSTMPathModel, BERTBiLSTMRelationModel
 
 from kdtools.utils.bmewov import BMEWOV
 
@@ -59,6 +59,7 @@ class MAJA2020(Algorithm):
 
         self.taskA_model = None
         self.taskB_model = None
+        self.taskB_model_bilstm = None
 
 
 
@@ -121,6 +122,40 @@ class MAJA2020(Algorithm):
 
         if use_cuda:
             self.taskB_model.cuda(device)
+
+    def load_taskB_model_bilstm(self, model_config_path, load_path=None):
+        model_config = self.builder.parse_config(model_config_path)
+
+        self.taskB_model_bilstm = BERTBiLSTMRelationModel(
+            self.dataset_info["embedding_size"],
+            self.dataset_info["wv"],
+            model_config.bert_size,
+            self.dataset_info["no_chars"],
+            model_config.charencoding_size,
+            self.dataset_info["no_postags"],
+            model_config.postag_size,
+            self.dataset_info["no_dependencies"],
+            model_config.dependency_size,
+            self.dataset_info["no_entity_types"],
+            model_config.entitytype_size,
+            self.dataset_info["no_entity_tags"],
+            model_config.entitytag_size,
+            model_config.bilstm_entities_size,
+            model_config.dropout_entities_chance,
+            model_config.lstm_sentence_input_size,
+            model_config.lstm_sentence_hidden_size,
+            model_config.dropout_sentence1_chance,
+            model_config.dropout_sentence2_chance,
+            self.dataset_info["no_relations"] - 1,
+            ablation = self.taskB_ablation
+        )
+
+        if load_path is not None:
+            print("Loading taskB_model_bilstm weights..")
+            self.taskB_model_bilstm.load_state_dict(torch.load(load_path))
+
+        if use_cuda:
+            self.taskB_model_bilstm.cuda(device)
 
 
     def evaluate_taskA_model(self, dataset):
@@ -209,7 +244,7 @@ class MAJA2020(Algorithm):
                 trees
             ) = X
 
-            for origin, destination, y_rel in relations["pos"]:
+            for origin, destination, _, _, y_rel in relations["pos"]:
                 X = (
                     word_inputs.unsqueeze(0).to(device),
                     char_inputs.unsqueeze(0).to(device),
@@ -236,7 +271,7 @@ class MAJA2020(Algorithm):
                 missing += int(not (q1 and q2))
                 spurious1 += int(q1 and not q2)
 
-            for origin, destination, y_rel in relations["neg"]:
+            for origin, destination, _, _, y_rel in relations["neg"]:
                 X = (
                     word_inputs.unsqueeze(0).to(device),
                     char_inputs.unsqueeze(0).to(device),
@@ -253,6 +288,101 @@ class MAJA2020(Algorithm):
                 try:
                     gold_rel = torch.zeros(1, no_relations - 1).to(device)
                     out_rel = self.taskB_model(X)
+
+                    total_loss += criterion(out_rel, gold_rel).item()
+                    total_rels += 1
+
+                    spurious2 += int(torch.max(out_rel) > threshold)
+                except Exception as e:
+                    print(e)
+
+        spurious = spurious1 + spurious2
+
+        if correct + spurious == 0:
+            spurious = -1
+
+        precision = correct / (correct + spurious)
+        recovery = correct / (correct + missing)
+        f1 = 2*(precision * recovery) / (precision + recovery) if precision + recovery > 0 else 0.
+
+        return {
+            "loss": total_loss / total_rels,
+            "precision": precision,
+            "recovery": recovery,
+            "f1": f1
+        }
+
+    def evaluate_taskB_model_bilstm(self, dataset, threshold = 0.5):
+        self.taskB_model_bilstm.eval()
+
+        correct = 0
+        spurious = 0
+        spurious1 = 0
+        spurious2 = 0
+        missing = 0
+        total_loss = 0
+        total_rels = 0
+
+        no_relations = self.dataset_info["no_relations"]
+
+        criterion = BCELoss(reduction = "sum")
+        if use_cuda:
+            criterion.cuda(device)
+
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations, _ = data
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                trees
+            ) = X
+
+            for origin, destination, origin_tokens, destination_tokens, y_rel in relations["pos"]:
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    origin_tokens,
+                    destination_tokens
+                )
+                y_rel = y_rel.to(device)
+
+                gold_rel = one_hot(y_rel, no_relations - 1).type(torch.float32).to(device)
+                out_rel = self.taskB_model_bilstm(X)
+
+                total_loss += criterion(out_rel, gold_rel).item()
+                total_rels += 1
+
+                q1 = torch.max(out_rel) > threshold
+                q2 = torch.argmax(out_rel) == y_rel
+                correct += int(q1 and q2)
+                missing += int(not (q1 and q2))
+                spurious1 += int(q1 and not q2)
+
+            for origin, destination, origin_tokens, destination_tokens, y_rel in relations["neg"]:
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    origin_tokens,
+                    destination_tokens
+                )
+
+                try:
+                    gold_rel = torch.zeros(1, no_relations - 1).to(device)
+                    out_rel = self.taskB_model_bilstm(X)
 
                     total_loss += criterion(out_rel, gold_rel).item()
                     total_rels += 1
@@ -415,7 +545,7 @@ class MAJA2020(Algorithm):
                 negative_rels = relations["neg"][:train_config.negative_sampling*len(positive_rels)]
                 premuted_rels = permutation(positive_rels + negative_rels)
 
-                for origin, destination, y_rel in premuted_rels:
+                for origin, destination, origin_tokens, destination_tokens, y_rel in premuted_rels:
                     X = (
                         word_inputs.unsqueeze(0).to(device),
                         char_inputs.unsqueeze(0).to(device),
@@ -429,7 +559,7 @@ class MAJA2020(Algorithm):
                         destination
                     )
 
-                    gold_rel = one_hot(torch.tensor(y_rel), no_relations - 1).type(torch.float32).unsqueeze(0) \
+                    gold_rel = one_hot(y_rel, no_relations - 1).type(torch.float32) \
                     if y_rel < no_relations - 1 else torch.zeros(1, no_relations - 1)
                     gold_rel = gold_rel.to(device)
                     out_rel = self.taskB_model(X)
@@ -457,6 +587,105 @@ class MAJA2020(Algorithm):
                 print("Saving taskB_model weights...")
                 best_cv_f1 = results_val["f1"]
                 torch.save(self.taskB_model.state_dict(), save_path)
+
+        return history
+
+    def train_taskB_model_bilstm(self, train_collection, validation_collection, model_config_path, train_config_path, save_path=None):
+        train_config = self.builder.parse_config(train_config_path).taskB
+
+        dataset = MajaDataset(train_collection, self.dataset_info["wv"])
+        val_data = MajaDataset(validation_collection, self.dataset_info["wv"])
+
+        self.load_taskB_model_bilstm(model_config_path)
+
+        optimizer = optim.Adam(
+            self.taskB_model_bilstm.parameters(),
+            lr = train_config.optimizer.lr
+            # weight_decay = train_config.optimizer.weight_decay
+        )
+
+        criterion = BCELoss(reduction = "sum")
+        if use_cuda:
+            criterion.cuda(device)
+
+        history = {
+            "train": [],
+            "validation": []
+        }
+
+        best_cv_f1 = 0
+
+        no_relations = self.dataset_info["no_relations"]
+
+        for epoch in range(train_config.epochs):
+
+            train_data = list(dataset.get_shuffled_data())
+
+            self.taskB_model_bilstm.train()
+            print("Optimizing...")
+            for data in tqdm(train_data):
+                * X, y_ent_type, y_ent_tag, relations, _ = data
+
+                (
+                    word_inputs,
+                    char_inputs,
+                    bert_embeddings,
+                    postag_inputs,
+                    dependency_inputs,
+                    trees
+                ) = X
+
+                optimizer.zero_grad()
+
+                rels_loss = 0
+
+                positive_rels = relations["pos"]
+                if epoch % 5 == 0:
+                    shuffle(relations["neg"])
+                negative_rels = relations["neg"][:train_config.negative_sampling*len(positive_rels)]
+                premuted_rels = permutation(positive_rels + negative_rels)
+
+                for origin, destination, origin_tokens, destination_tokens, y_rel in premuted_rels:
+                    X = (
+                        word_inputs.unsqueeze(0).to(device),
+                        char_inputs.unsqueeze(0).to(device),
+                        bert_embeddings.unsqueeze(0).to(device),
+                        postag_inputs.unsqueeze(0).to(device),
+                        dependency_inputs.unsqueeze(0).to(device),
+                        y_ent_type.unsqueeze(0).to(device),
+                        y_ent_tag.unsqueeze(0).to(device),
+                        origin_tokens,
+                        destination_tokens
+                    )
+
+                    gold_rel = one_hot(y_rel, no_relations - 1).type(torch.float32) \
+                    if y_rel < no_relations - 1 else torch.zeros(1, no_relations - 1)
+                    gold_rel = gold_rel.to(device)
+                    out_rel = self.taskB_model_bilstm(X)
+
+                    rels_loss += criterion(out_rel, gold_rel)
+
+                rels_loss.backward()
+                optimizer.step()
+
+            print("Evaluating on training data...")
+            results_train = self.evaluate_taskB_model_bilstm(dataset)
+            history["train"].append(results_train)
+
+            print("Evaluating on validation data...")
+            results_val = self.evaluate_taskB_model_bilstm(val_data)
+            history["validation"].append(results_val)
+
+            for key, value in results_train.items():
+                print(f"[{epoch+1}] train_{key}: {value}")
+
+            for key, value in results_val.items():
+                print(f"[{epoch+1}] val_{key}: {value}")
+
+            if save_path is not None and results_val["f1"] > best_cv_f1:
+                print("Saving taskB_model weights...")
+                best_cv_f1 = results_val["f1"]
+                torch.save(self.taskB_model_bilstm.state_dict(), save_path)
 
         return history
 
@@ -573,6 +802,62 @@ class MAJA2020(Algorithm):
 
                 if torch.max(out_rel) > threshold:
                     sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, dataset.relations[torch.argmax(out_rel)]))
+
+    def run_taskB_model_bilstm(self, collection, threshold = 0.5, model_config = None, load_path=None):
+
+        print("Running task B...")
+        dataset = MajaDataset(collection, self.dataset_info["wv"])
+
+        if load_path is not None:
+            print("Loading weights...")
+            self.load_taskB_model_bilstm(model_config, load_path)
+
+        self.taskB_model_bilstm.eval()
+
+        print("Running...")
+        for data in tqdm(dataset):
+            * X, y_ent_type, y_ent_tag, relations, evaluation = data
+
+            (
+                sentence,
+                sentence_spans,
+                head_words
+            ) = evaluation
+
+            (
+                word_inputs,
+                char_inputs,
+                bert_embeddings,
+                postag_inputs,
+                dependency_inputs,
+                trees,
+            ) = X
+
+            head_entities = [(idx, kp) for (idx, entities) in enumerate(head_words) for kp in entities]
+            for origin_pair, destination_pair in product(head_entities, head_entities):
+                origin, kp_origin = origin_pair
+                destination, kp_destination = destination_pair
+
+                origin_tokens = [sentence_spans.index(span) for span in head_words[origin][0].spans]
+                destination_tokens = [sentence_spans.index(span) for span in head_words[destination][0].spans]
+
+                X = (
+                    word_inputs.unsqueeze(0).to(device),
+                    char_inputs.unsqueeze(0).to(device),
+                    bert_embeddings.unsqueeze(0).to(device),
+                    postag_inputs.unsqueeze(0).to(device),
+                    dependency_inputs.unsqueeze(0).to(device),
+                    y_ent_type.unsqueeze(0).to(device),
+                    y_ent_tag.unsqueeze(0).to(device),
+                    origin_tokens,
+                    destination_tokens
+                )
+
+                out_rel = self.taskB_model_bilstm(X)
+
+                if torch.max(out_rel) > threshold:
+                    sentence.relations.append(Relation(sentence, kp_origin.id, kp_destination.id, dataset.relations[torch.argmax(out_rel)]))
+
 
     def run(self, collection, *args, taskA, taskB, **kargs):
         print("----------------RUNNING-------------")

@@ -1377,15 +1377,23 @@ class MajaDataset(
                 (
                     entity_heads[relation.origin],
                     entity_heads[relation.destination],
+                    [sentence_spans.index(span) for span in sentence.find_keyphrase(relation.origin).spans],
+                    [sentence_spans.index(span) for span in sentence.find_keyphrase(relation.destination).spans],
                     torch.LongTensor([self.relation2index[relation.label]])
                 )
                 for relation in sentence.relations \
                     if relation.origin in entity_heads and relation.destination in entity_heads
             ]
 
-            paired_tokens = [(orig, dest) for orig, dest, _ in positive_relations]
+            paired_tokens = [(orig, dest) for orig, dest,_,_,_ in positive_relations]
             indices = list(range(sent_len))
-            negative_relations = [(i, j, torch.LongTensor([self.relation2index['none']])) \
+            negative_relations = [(
+                    i,
+                    j,
+                    [sentence_spans.index(span) for span in head_words[i][0].spans],
+                    [sentence_spans.index(span) for span in head_words[j][0].spans],
+                    torch.LongTensor([self.relation2index['none']])
+                ) \
                 for i, j in list(product(indices, indices)) \
                     if (i, j) not in paired_tokens and len(head_words[i]) > 0 and len(head_words[j]) > 0]
 
